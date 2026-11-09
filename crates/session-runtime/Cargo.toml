@@ -1,0 +1,32 @@
+[package]
+name = "veyra-session-runtime"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+native-libnice = ["veyra-transport/native-libnice"]
+
+[dependencies]
+async-trait = "=0.1.92"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+tokio-tungstenite = { version = "=0.28.0", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+futures-util = "=0.3.32"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+hex = "=0.4.3"
+url = "=2.5.8"
+zeroize = "=1.8.2"
+sha2 = "=0.10.9"
+thiserror = "=2.0.21"
+veyra-protocol = { path = "../protocol" }
+veyra-identity = { path = "../identity" }
+veyra-crypto = { path = "../crypto" }
+veyra-core = { path = "../messaging" }
+veyra-domain = { path = "../domain" }
+veyra-secure-memory = { path = "../secure-memory" }
+veyra-connectivity = { path = "../connectivity" }
+veyra-transport = { path = "../transport-webrtc" }
+veyra-signaling = { path = "../../services/signaling" }

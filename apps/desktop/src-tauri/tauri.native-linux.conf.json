@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": ["binaries/veyra-daemon", "binaries/veyra-vault"],
+    "resources": ["../../../LICENSE", "../../../SECURITY.md", "../../../vendor/glib/LICENSE", "../../../docs/THIRD-PARTY-RUST.txt", "../../../docs/THIRD-PARTY-NATIVE.txt", "../../../docs/THIRD-PARTY-LICENSE-REPORT.json", "binaries/native/LICENSE-libdatachannel.txt", "../../../infrastructure/licenses/datachannel-0.16.1-veyra-source.tar.gz"],
+    "linux": {
+      "deb": {
+        "depends": ["libnice10", "libssl3", "ca-certificates"],
+        "files": {"/usr/lib/veyra/libdatachannel.so.0.23": "binaries/native/libdatachannel.so.0.23"}
+      }
+    }
+  }
+}

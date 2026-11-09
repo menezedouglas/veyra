@@ -1,0 +1,50 @@
+{
+  "checks": {
+    "native_window_visible": true,
+    "atspi_real_document_available": true,
+    "five_navigation_tabs_accessible": true,
+    "initial_session_inactive": true,
+    "vault_process_started_by_real_ui": true,
+    "public_fingerprint_displayed": true,
+    "empty_pending_without_mock": true,
+    "unconfigured_transport_truthful": true,
+    "no_invented_direct_or_relay_route": true,
+    "runtime_id_displayed": true,
+    "vault_terminated_after_end": true,
+    "ended_identity_removed_from_accessible_ui": true,
+    "no_live_vault_after_end": true,
+    "no_zombie_vault_observed_after_end": true,
+    "identity_metadata_absent_from_captured_process_output": true,
+    "identity_metadata_absent_from_inspected_xdg_files": true
+  },
+  "failure": null,
+  "filesystem": {
+    "files": [
+      {
+        "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+        "bytes": 8
+      },
+      {
+        "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+        "bytes": 12288
+      },
+      {
+        "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+        "bytes": 8
+      },
+      {
+        "path": "data/app.veyra.desktop/storage/salt",
+        "bytes": 8
+      }
+    ],
+    "identityMetadataMatches": 0,
+    "scanLimitPerFileBytes": 16777216
+  },
+  "capturedOutputBytes": 2740,
+  "screenshotSaved": true,
+  "limitations": [
+    "No message, invitation, pairing or remote endpoint was used.",
+    "Only the isolated XDG/TMP directories and bounded process output were inspected.",
+    "No conclusion about all OS, GPU, swap, crash or privileged-process traces."
+  ]
+}

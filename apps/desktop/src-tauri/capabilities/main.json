@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Comandos tipados da janela local Veyra; sem plugins de arquivos, shell ou rede.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": [
+    "allow-start-session", "allow-create-invite", "allow-join-invite",
+    "allow-verify-peer", "allow-send-message", "allow-list-pending",
+    "allow-open-once", "allow-discard-message", "allow-revoke-peer",
+    "allow-connection-status", "allow-end-session"
+  ]
+}

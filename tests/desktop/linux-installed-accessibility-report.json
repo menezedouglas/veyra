@@ -1,0 +1,70 @@
+{
+  "checks": {
+    "native_window_visible": true,
+    "atspi_real_document_available": true,
+    "five_navigation_tabs_accessible": true,
+    "initial_session_inactive": true,
+    "vault_process_started_by_real_ui": true,
+    "public_fingerprint_displayed": true,
+    "empty_pending_without_mock": true,
+    "unconfigured_transport_truthful": true,
+    "no_invented_direct_or_relay_route": true,
+    "runtime_id_displayed": true,
+    "vault_terminated_after_end": true,
+    "ended_identity_removed_from_accessible_ui": true,
+    "no_live_vault_after_end": true,
+    "no_zombie_vault_observed_after_end": true,
+    "identity_metadata_absent_from_captured_process_output": true,
+    "identity_metadata_absent_from_inspected_xdg_files": true
+  },
+  "failure": null,
+  "filesystem": {
+    "files": [
+      {
+        "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+        "bytes": 8
+      },
+      {
+        "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+        "bytes": 12288
+      },
+      {
+        "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+        "bytes": 8
+      },
+      {
+        "path": "data/app.veyra.desktop/storage/salt",
+        "bytes": 8
+      }
+    ],
+    "identityMetadataMatches": 0,
+    "scanLimitPerFileBytes": 16777216
+  },
+  "capturedOutputBytes": 2761,
+  "screenshotSaved": false,
+  "limitations": [
+    "No message, invitation, pairing or remote endpoint was used.",
+    "Only the isolated XDG/TMP directories and bounded process output were inspected.",
+    "No conclusion about all OS, GPU, swap, crash or privileged-process traces."
+  ],
+  "execution": {
+    "origin": "installed-debian-release",
+    "packageVersion": "0.1.0",
+    "packageArchive": "artifacts/Veyra_0.1.0_amd64.deb",
+    "packageArchiveSha256": "071859d476897a39eba379731eb75c699937f3b0ac112cdcab1252d5a67bb388",
+    "clientBinary": "/usr/bin/veyra",
+    "clientSha256": "4de886d5374d476f2b14cccd9a49fcc326813e12474cc6be8ec16c184af3115d",
+    "sidecars": {
+      "veyra-vault": "498e8513de48b56b08e40228b54e8e32541985054ed2ed214672a979acedeeee",
+      "veyra-daemon": "09e6539146ed458a6d81a64dca204ac93582e2add531ce716542f9be17e83d68"
+    },
+    "nativeLibraryDirectory": "/usr/lib/veyra",
+    "restrictedPath": "/usr/bin:/bin",
+    "nodeInPath": false,
+    "rustcInPath": false,
+    "buildRevision": "daemon-owned private Noise key; public-only vault binding; unsupported Windows bootstrap refused; datachannel ICE NUL-padding fix",
+    "modifiedSourceArchive": "/usr/lib/Veyra/_up_/_up_/_up_/infrastructure/licenses/datachannel-0.16.1-veyra-source.tar.gz",
+    "modifiedSourceArchiveSha256": "e8f89801ca38756fc5638fe4721237241efd4bf28d95b597295373d676f8f478",
+    "windowsRuntimeTested": false
+  }
+}

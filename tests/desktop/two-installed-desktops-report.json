@@ -1,0 +1,99 @@
+{
+  "checks": {
+    "real_wss_operator_with_trusted_synthetic_ca": true,
+    "two_native_ui_sessions_and_separate_vaults_started": true,
+    "real_invitation_and_noise_pairing_from_ui": true,
+    "native_transcript_codes_equal_before_approval": true,
+    "explicit_local_identity_approval_both_windows": true,
+    "both_ui_routes_report_real_direct_ice": true,
+    "composer_cleared_after_native_send_forward": true,
+    "no_plaintext_before_local_authorization_forward": true,
+    "native_hpke_body_displayed_once_forward": true,
+    "native_focus_loss_hides_body_forward": true,
+    "consumed_card_removed_without_history_forward": true,
+    "composer_cleared_after_native_send_reverse": true,
+    "no_plaintext_before_local_authorization_reverse": true,
+    "native_hpke_body_displayed_once_reverse": true,
+    "native_focus_loss_hides_body_reverse": true,
+    "consumed_card_removed_without_history_reverse": true,
+    "both_sessions_end_and_vaults_terminate": true,
+    "fixture_and_invite_absent_from_captured_process_output": true,
+    "fixture_and_invite_absent_from_inspected_profiles": true
+  },
+  "failure": null,
+  "failureState": [],
+  "profiles": {
+    "a": {
+      "files": [
+        {
+          "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+          "bytes": 12288
+        },
+        {
+          "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/storage/salt",
+          "bytes": 8
+        }
+      ],
+      "identityMetadataMatches": 0,
+      "scanLimitPerFileBytes": 16777216
+    },
+    "b": {
+      "files": [
+        {
+          "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+          "bytes": 12288
+        },
+        {
+          "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/storage/salt",
+          "bytes": 8
+        }
+      ],
+      "identityMetadataMatches": 0,
+      "scanLimitPerFileBytes": 16777216
+    }
+  },
+  "capturedOutputBytes": 2753,
+  "limitations": [
+    "Direct route on one isolated Linux container; no NAT, Windows or installer test.",
+    "No desktop TURN route test in this harness; separate core/process relay evidence is required.",
+    "Scans cover whole fixture/invite byte strings in isolated profiles and bounded stdout/stderr, not every residual copy or OS location."
+  ],
+  "execution": {
+    "origin": "installed-debian-release",
+    "packageVersion": "0.1.0",
+    "packageArchive": "artifacts/Veyra_0.1.0_amd64.deb",
+    "packageArchiveSha256": "071859d476897a39eba379731eb75c699937f3b0ac112cdcab1252d5a67bb388",
+    "clientBinary": "/usr/bin/veyra",
+    "clientSha256": "4de886d5374d476f2b14cccd9a49fcc326813e12474cc6be8ec16c184af3115d",
+    "sidecars": {
+      "veyra-vault": "498e8513de48b56b08e40228b54e8e32541985054ed2ed214672a979acedeeee",
+      "veyra-daemon": "09e6539146ed458a6d81a64dca204ac93582e2add531ce716542f9be17e83d68"
+    },
+    "nativeLibraryDirectory": "/usr/lib/veyra",
+    "restrictedPath": "/usr/bin:/bin",
+    "nodeInPath": false,
+    "rustcInPath": false,
+    "buildRevision": "daemon-owned private Noise key; public-only vault binding; unsupported Windows bootstrap refused; datachannel ICE NUL-padding fix",
+    "modifiedSourceArchive": "/usr/lib/Veyra/_up_/_up_/_up_/infrastructure/licenses/datachannel-0.16.1-veyra-source.tar.gz",
+    "modifiedSourceArchiveSha256": "e8f89801ca38756fc5638fe4721237241efd4bf28d95b597295373d676f8f478",
+    "windowsRuntimeTested": false,
+    "operatorBinary": "/work/target/debug/veyra-signaling",
+    "operatorRole": "local synthetic TLS fixture; clients and sidecars are installed release binaries"
+  }
+}

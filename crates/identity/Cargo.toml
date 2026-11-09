@@ -1,0 +1,16 @@
+[package]
+name = "veyra-identity"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+ed25519-dalek = { version = "=2.2.0", features = ["zeroize"] }
+snow = "=0.10.0"
+getrandom = "=0.2.16"
+sha2 = "=0.10.9"
+zeroize = "=1.8.2"
+thiserror = "=2.0.21"
+veyra-protocol = { path = "../protocol" }
+veyra-secure-memory = { path = "../secure-memory" }

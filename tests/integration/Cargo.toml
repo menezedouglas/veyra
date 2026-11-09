@@ -1,0 +1,18 @@
+[package]
+name = "veyra-tests"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+veyra-protocol = { path = "../../crates/protocol" }
+veyra-identity = { path = "../../crates/identity" }
+veyra-crypto = { path = "../../crates/crypto" }
+veyra-core = { path = "../../crates/messaging" }
+veyra-vault = { path = "../../crates/vault" }
+veyra-secure-memory = { path = "../../crates/secure-memory" }
+veyra-transport = { path = "../../crates/transport-webrtc" }
+veyra-connectivity = { path = "../../crates/connectivity" }
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "time"] }
+serde_json = "=1.0.150"

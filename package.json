@@ -1,0 +1,16 @@
+{
+  "name": "veyra",
+  "private": true,
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@12.18.0",
+  "engines": { "node": "24.22.2", "pnpm": "12.18.0" },
+  "scripts": {
+    "dev": "pnpm --filter veyra-desktop dev",
+    "build": "pnpm --filter veyra-desktop build",
+    "test": "pnpm --filter veyra-desktop test",
+    "typecheck": "pnpm --filter veyra-desktop typecheck",
+    "desktop": "pnpm --filter veyra-desktop tauri",
+    "brand:icons": "python3 scripts/generate-icons.py"
+  }
+}

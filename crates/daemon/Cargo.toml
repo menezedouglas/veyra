@@ -1,0 +1,37 @@
+[package]
+name = "veyra-daemon"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+native-libnice = ["veyra-session-runtime/native-libnice"]
+
+[dependencies]
+veyra-ipc = { path = "../ipc" }
+veyra-vault = { path = "../vault" }
+veyra-protocol = { path = "../protocol" }
+veyra-identity = { path = "../identity" }
+veyra-secure-memory = { path = "../secure-memory" }
+serde = { version = "=1.0.228", features = ["derive"] }
+zeroize = "=1.8.2"
+tokio = { version = "=1.54.1", features = ["process", "io-util", "io-std", "sync", "time", "rt-multi-thread", "macros"] }
+serde_json = "=1.0.150"
+async-trait = "=0.1.92"
+snow = "=0.10.0"
+veyra-session-runtime = { path = "../session-runtime" }
+veyra-connectivity = { path = "../connectivity" }
+
+
+[[bin]]
+name = "veyra-daemon"
+path = "src/main.rs"
+
+[[bin]]
+name = "veyra-vault"
+path = "src/vault_worker.rs"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "=0.2.191"
+

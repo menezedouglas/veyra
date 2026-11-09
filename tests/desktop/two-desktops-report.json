@@ -1,0 +1,76 @@
+{
+  "checks": {
+    "real_wss_operator_with_trusted_synthetic_ca": true,
+    "two_native_ui_sessions_and_separate_vaults_started": true,
+    "real_invitation_and_noise_pairing_from_ui": true,
+    "native_transcript_codes_equal_before_approval": true,
+    "explicit_local_identity_approval_both_windows": true,
+    "both_ui_routes_report_real_direct_ice": true,
+    "composer_cleared_after_native_send_forward": true,
+    "no_plaintext_before_local_authorization_forward": true,
+    "native_hpke_body_displayed_once_forward": true,
+    "native_focus_loss_hides_body_forward": true,
+    "consumed_card_removed_without_history_forward": true,
+    "composer_cleared_after_native_send_reverse": true,
+    "no_plaintext_before_local_authorization_reverse": true,
+    "native_hpke_body_displayed_once_reverse": true,
+    "native_focus_loss_hides_body_reverse": true,
+    "consumed_card_removed_without_history_reverse": true,
+    "both_sessions_end_and_vaults_terminate": true,
+    "fixture_and_invite_absent_from_captured_process_output": true,
+    "fixture_and_invite_absent_from_inspected_profiles": true
+  },
+  "failure": null,
+  "profiles": {
+    "a": {
+      "files": [
+        {
+          "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+          "bytes": 12288
+        },
+        {
+          "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/storage/salt",
+          "bytes": 8
+        }
+      ],
+      "identityMetadataMatches": 0,
+      "scanLimitPerFileBytes": 16777216
+    },
+    "b": {
+      "files": [
+        {
+          "path": "data/app.veyra.desktop/WebKitCache/Version 17/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/hsts-storage.sqlite",
+          "bytes": 12288
+        },
+        {
+          "path": "data/app.veyra.desktop/mediakeys/v1/salt",
+          "bytes": 8
+        },
+        {
+          "path": "data/app.veyra.desktop/storage/salt",
+          "bytes": 8
+        }
+      ],
+      "identityMetadataMatches": 0,
+      "scanLimitPerFileBytes": 16777216
+    }
+  },
+  "capturedOutputBytes": 2732,
+  "limitations": [
+    "Direct route on one isolated Linux container; no NAT, Windows or installer test.",
+    "No desktop TURN route test in this harness; separate core/process relay evidence is required.",
+    "Scans cover whole fixture/invite byte strings in isolated profiles and bounded stdout/stderr, not every residual copy or OS location."
+  ]
+}

@@ -1,0 +1,17 @@
+[package]
+name = "veyra-vault"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+veyra-protocol = { path = "../protocol" }
+veyra-identity = { path = "../identity" }
+veyra-crypto = { path = "../crypto" }
+veyra-domain = { path = "../domain" }
+veyra-state = { path = "../volatile-state" }
+veyra-secure-memory = { path = "../secure-memory" }
+zeroize = "=1.8.2"
+subtle = "=2.6.1"
+thiserror = "=2.0.21"

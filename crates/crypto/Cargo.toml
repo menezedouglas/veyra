@@ -1,0 +1,17 @@
+[package]
+name = "veyra-crypto"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+hpke = { version = "=0.13.0", default-features = false, features = ["alloc", "x25519"] }
+rand = "=0.9.5"
+snow = "=0.10.0"
+zeroize = "=1.8.2"
+thiserror = "=2.0.21"
+veyra-identity = { path = "../identity" }
+veyra-protocol = { path = "../protocol" }
+veyra-domain = { path = "../domain" }
+veyra-secure-memory = { path = "../secure-memory" }

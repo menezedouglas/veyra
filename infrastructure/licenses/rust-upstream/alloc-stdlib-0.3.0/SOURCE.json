@@ -1,0 +1,14 @@
+{
+  "name": "alloc-stdlib",
+  "version": "0.3.0",
+  "git_commit": "0a81fd6928ea3b33c8cd484aa4575d50ffb98012",
+  "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
+  "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+  "files": [
+    {
+      "filename": "LICENSE",
+      "source": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
+      "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+    }
+  ]
+}

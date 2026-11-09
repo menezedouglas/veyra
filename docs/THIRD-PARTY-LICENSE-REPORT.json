@@ -1,0 +1,374 @@
+{
+  "purpose": "Preserve original notices; legal compatibility and release review remain pending",
+  "platform": "x86_64-unknown-linux-gnu",
+  "roots": [
+    "veyra-desktop",
+    "veyra-daemon",
+    "veyra-signaling"
+  ],
+  "cargo_command": [
+    "cargo",
+    "metadata",
+    "--format-version",
+    "1",
+    "--locked",
+    "--all-features",
+    "--filter-platform",
+    "x86_64-unknown-linux-gnu"
+  ],
+  "rust_packages": 456,
+  "rust_notice_files": 817,
+  "native_notice_files": 65,
+  "rust_missing_notice_files": [],
+  "rust_packaged_missing_notice_files": [
+    {
+      "name": "alloc-stdlib",
+      "version": "0.3.0"
+    },
+    {
+      "name": "asn1-rs-impl",
+      "version": "0.2.0"
+    },
+    {
+      "name": "dlopen2",
+      "version": "0.8.2"
+    },
+    {
+      "name": "dlopen2_derive",
+      "version": "0.4.3"
+    },
+    {
+      "name": "libappindicator-sys",
+      "version": "0.9.0"
+    },
+    {
+      "name": "rtc-crypto",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-datachannel",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-dtls",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-ice",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-interceptor",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-mdns",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-media",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-rtcp",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-rtp",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-sctp",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-sdp",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-shared",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-srtp",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-stun",
+      "version": "0.21.1"
+    },
+    {
+      "name": "rtc-turn",
+      "version": "0.21.1"
+    },
+    {
+      "name": "selectors",
+      "version": "0.38.0"
+    }
+  ],
+  "rust_original_notices_supplemented": [
+    {
+      "name": "alloc-stdlib",
+      "version": "0.3.0",
+      "original_notice_from": {
+        "name": "alloc-stdlib",
+        "version": "0.3.0",
+        "git_commit": "0a81fd6928ea3b33c8cd484aa4575d50ffb98012",
+        "repository": "https://github.com/dropbox/rust-alloc-no-stdlib",
+        "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+        "files": [
+          {
+            "filename": "LICENSE",
+            "source": "https://raw.githubusercontent.com/dropbox/rust-alloc-no-stdlib/0a81fd6928ea3b33c8cd484aa4575d50ffb98012/LICENSE",
+            "sha256": "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+          }
+        ]
+      }
+    },
+    {
+      "name": "asn1-rs-impl",
+      "version": "0.2.0",
+      "original_notice_from": {
+        "name": "asn1-rs-impl",
+        "version": "0.2.0",
+        "git_commit": "a20e5f7319c896737ad0f2557037817b91ad854f",
+        "repository": "https://github.com/rusticata/asn1-rs",
+        "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+        "files": [
+          {
+            "filename": "LICENSE-MIT",
+            "source": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-MIT",
+            "sha256": "a5c61b93b6ee1d104af9920cf020ff3c7efe818e31fe562c72261847a728f513"
+          },
+          {
+            "filename": "LICENSE-APACHE",
+            "source": "https://raw.githubusercontent.com/rusticata/asn1-rs/a20e5f7319c896737ad0f2557037817b91ad854f/LICENSE-APACHE",
+            "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dlopen2",
+      "version": "0.8.2",
+      "original_notice_from": {
+        "name": "dlopen2",
+        "version": "0.8.2",
+        "git_commit": "cc80e4a0a90d499b677fdf7743699b4b3a43a989",
+        "repository": "https://github.com/OpenByteDev/dlopen2",
+        "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+        "files": [
+          {
+            "filename": "LICENSE",
+            "source": "https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE",
+            "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "dlopen2_derive",
+      "version": "0.4.3",
+      "original_notice_from": {
+        "name": "dlopen2_derive",
+        "version": "0.4.3",
+        "git_commit": "cc80e4a0a90d499b677fdf7743699b4b3a43a989",
+        "repository": "https://github.com/OpenByteDev/dlopen2",
+        "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+        "files": [
+          {
+            "filename": "LICENSE",
+            "source": "https://raw.githubusercontent.com/OpenByteDev/dlopen2/cc80e4a0a90d499b677fdf7743699b4b3a43a989/LICENSE",
+            "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "libappindicator-sys",
+      "version": "0.9.0",
+      "original_notice_from": {
+        "name": "libappindicator",
+        "version": "0.9.0",
+        "git_commit": "eafd1e3682a1247f595410266091e9684021cb6f",
+        "repository": null
+      }
+    },
+    {
+      "name": "rtc-crypto",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-datachannel",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-dtls",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-ice",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-interceptor",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-mdns",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-media",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-rtcp",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-rtp",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-sctp",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-sdp",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-shared",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-srtp",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-stun",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "rtc-turn",
+      "version": "0.21.1",
+      "original_notice_from": {
+        "name": "rtc",
+        "version": "0.21.1",
+        "git_commit": "2a732df55ca4bcf26b80914fa0f570cfaf74cfcb",
+        "repository": "https://github.com/webrtc-rs/rtc"
+      }
+    },
+    {
+      "name": "selectors",
+      "version": "0.38.0",
+      "original_notice_from": {
+        "name": "selectors",
+        "version": "0.38.0",
+        "git_commit": "572ecba2d1600e7c3d490586692a209faf703baa",
+        "repository": "https://github.com/servo/stylo",
+        "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+        "files": [
+          {
+            "filename": "LICENSE-MPL-2.0.txt",
+            "source": "https://www.mozilla.org/media/MPL/2.0/index.txt",
+            "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+          },
+          {
+            "filename": "COPYRIGHT-HEADER.txt",
+            "source": "https://raw.githubusercontent.com/servo/stylo/572ecba2d1600e7c3d490586692a209faf703baa/selectors/lib.rs",
+            "extraction": "Original leading license comment only; no LICENSE file was present in that upstream snapshot",
+            "sha256": "766674381e88a468d55e07de3596987391cf0e8beebe51baf4fddf11078785b3"
+          }
+        ],
+        "license_origin": "Canonical Mozilla license explicitly referenced by the original source header and package SPDX; not an invented LICENSE from the crate snapshot"
+      }
+    }
+  ],
+  "native_missing_notice_files": []
+}

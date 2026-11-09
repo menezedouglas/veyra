@@ -1,0 +1,8 @@
+{
+  "component": "nlohmann/json",
+  "version": "3.12.0",
+  "commit": "55f93686c01528224f448c19128836e7df245f72",
+  "source": "https://raw.githubusercontent.com/nlohmann/json/55f93686c01528224f448c19128836e7df245f72/LICENSE.MIT",
+  "referenced_by": "libdatachannel v0.23.2 gitlink deps/json at commit 9e6a13abbb6846c003d817d0387b6706466e2b03",
+  "build_scope": "Examples dependency; excluded by NO_EXAMPLES=ON in the observed native build. Original notice deliberately preserved."
+}

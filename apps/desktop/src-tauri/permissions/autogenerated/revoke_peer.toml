@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-revoke-peer"
+description = "Enables the revoke_peer command without any pre-configured scope."
+commands.allow = ["revoke_peer"]
+
+[[permission]]
+identifier = "deny-revoke-peer"
+description = "Denies the revoke_peer command without any pre-configured scope."
+commands.deny = ["revoke_peer"]

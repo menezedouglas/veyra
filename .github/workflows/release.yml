@@ -1,0 +1,115 @@
+name: Package validated Veyra release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version tag matching Cargo/package version (e.g. v0.1.0)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 scripts/release-gate.py
+  packages:
+    needs: evidence
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            bundles: deb
+            config: src-tauri/tauri.native-linux.conf.json
+          - os: windows-2025
+            bundles: nsis
+            config: src-tauri/tauri.release.conf.json
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version-file: .node-version
+      - name: Linux build prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libnice-dev libclang-dev cmake pkg-config
+      - run: rustup toolchain install 1.99.1 --profile minimal
+      - run: npm install --global pnpm@12.18.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: cargo test --locked
+      - name: Stage validated Linux native backend
+        if: runner.os == 'Linux'
+        env:
+          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/infrastructure/development/libdatachannel-nice.cmake
+        run: python3 scripts/prepare-sidecars.py --native-libnice
+      - name: Stage Windows baseline (release gate requires platform evidence)
+        if: runner.os == 'Windows'
+        run: python scripts/prepare-sidecars.py
+      - name: Build Linux package
+        if: runner.os == 'Linux'
+        env:
+          CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/infrastructure/development/libdatachannel-nice.cmake
+        run: pnpm desktop build --features native-libnice --config ${{ matrix.config }} --bundles ${{ matrix.bundles }}
+      - name: Build Windows package
+        if: runner.os == 'Windows'
+        run: pnpm desktop build --config ${{ matrix.config }} --bundles ${{ matrix.bundles }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Veyra-${{ runner.os }}-unsigned
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+  draft-release:
+    needs: packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: release-artifacts
+          merge-multiple: true
+      - name: Check requested version
+        env:
+          VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          tag=os.environ['VEYRA_RELEASE_TAG']
+          assert re.fullmatch(r'v\d+\.\d+\.\d+',tag)
+          assert tag[1:]==json.load(open('package.json'))['version']
+          PY
+      - name: Create unsigned draft with checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,shutil
+          from pathlib import Path
+          destination=Path('release-files');destination.mkdir()
+          checksums=[]
+          for source in sorted(Path('release-artifacts').rglob('*')):
+              if source.suffix not in ('.deb','.exe'):continue
+              target=destination/source.name
+              assert not target.exists(),'Duplicate asset basename'
+              shutil.copy2(source,target)
+              checksums.append(hashlib.sha256(target.read_bytes()).hexdigest()+'  '+target.name)
+          assert checksums,'No installer artifacts'
+          Path('SHA256SUMS').write_text('\n'.join(checksums)+'\n')
+          PY
+          mapfile -d '' veyra_assets < <(find release-files -type f -print0)
+          gh release create "$VEYRA_RELEASE_TAG" "${veyra_assets[@]}" SHA256SUMS --draft --target "$GITHUB_SHA" --title "Veyra $VEYRA_RELEASE_TAG" --notes "Unsigned packages. Review checksums and the validated acceptance matrix before publishing. No independent audit is claimed."

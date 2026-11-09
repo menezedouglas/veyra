@@ -1,0 +1,21 @@
+{
+  "name": "selectors",
+  "version": "0.38.0",
+  "git_commit": "572ecba2d1600e7c3d490586692a209faf703baa",
+  "repository": "https://github.com/servo/stylo",
+  "purpose": "Preserve original upstream or explicitly referenced license text absent from the published crate; no legal scope or compatibility conclusion",
+  "files": [
+    {
+      "filename": "LICENSE-MPL-2.0.txt",
+      "source": "https://www.mozilla.org/media/MPL/2.0/index.txt",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "filename": "COPYRIGHT-HEADER.txt",
+      "source": "https://raw.githubusercontent.com/servo/stylo/572ecba2d1600e7c3d490586692a209faf703baa/selectors/lib.rs",
+      "extraction": "Original leading license comment only; no LICENSE file was present in that upstream snapshot",
+      "sha256": "766674381e88a468d55e07de3596987391cf0e8beebe51baf4fddf11078785b3"
+    }
+  ],
+  "license_origin": "Canonical Mozilla license explicitly referenced by the original source header and package SPDX; not an invented LICENSE from the crate snapshot"
+}

@@ -1,0 +1,9 @@
+packages:
+  - apps/desktop
+minimumReleaseAge: 1440
+onlyBuiltDependencies:
+  - esbuild
+  - '@tailwindcss/oxide'
+overrides:
+  vite: 8.3.6
+  rolldown: 1.2.16

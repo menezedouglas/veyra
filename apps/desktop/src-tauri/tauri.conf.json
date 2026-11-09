@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Veyra",
+  "version": "0.1.0",
+  "identifier": "app.veyra.desktop",
+  "mainBinaryName": "veyra",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [{
+      "label": "main",
+      "title": "Veyra",
+      "width": 1120,
+      "height": 760,
+      "minWidth": 720,
+      "minHeight": 560,
+      "incognito": true,
+      "devtools": false,
+      "dragDropEnabled": false,
+      "generalAutofillEnabled": false,
+      "contentProtected": true
+    }],
+    "security": {
+      "csp": "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'",
+      "freezePrototype": true,
+      "capabilities": ["main"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb", "appimage", "nsis"],
+    "category": "SocialNetworking",
+    "shortDescription": "Mensagens privadas, diretas e efêmeras.",
+    "longDescription": "Mensageiro desktop experimental com identidade temporária, mensagens cifradas em RAM e leitura única. Protocolo sem revisão independente; consulte as limitações e a matriz de entrega.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
+    "linux": {
+      "deb": { "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"] }
+    },
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true },
+      "nsis": { "displayLanguageSelector": true, "languages": ["PortugueseBR", "English"] }
+    }
+  }
+}

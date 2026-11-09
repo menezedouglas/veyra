@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  --background: #091b23;
+  --foreground: #e5e7eb;
+  --card: #0e242d;
+  --card-foreground: #e5e7eb;
+  --primary: #00e6a8;
+  --primary-foreground: #05291f;
+  --secondary: #15333f;
+  --secondary-foreground: #e5e7eb;
+  --muted: #102b35;
+  --muted-foreground: #a9bec6;
+  --accent: #1b3c48;
+  --accent-foreground: #ffffff;
+  --border: #30515e;
+  --input: #42616d;
+  --ring: #00e6a8;
+  --destructive: #ff9f9f;
+  --success: #66e1b2;
+  --warning: #f3cc81;
+  --route-direct: #66e1b2;
+  --route-relay: #aacaff;
+  --graphite: #1e293b;
+  --radius: 0.625rem;
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --background: #f4f8f8;
+  --foreground: #142e39;
+  --card: #ffffff;
+  --card-foreground: #142e39;
+  --primary: #00795b;
+  --primary-foreground: #ffffff;
+  --secondary: #e6eeee;
+  --secondary-foreground: #142e39;
+  --muted: #eaf1f2;
+  --muted-foreground: #4b6470;
+  --accent: #dbe9e9;
+  --accent-foreground: #142e39;
+  --border: #9cbdc4;
+  --input: #718e98;
+  --ring: #00795b;
+  --destructive: #ab2537;
+  --success: #006d4c;
+  --warning: #835400;
+  --route-direct: #006d4c;
+  --route-relay: #2e5592;
+}
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-route-direct: var(--route-direct);
+  --color-route-relay: var(--route-relay);
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'DejaVu Sans Mono', monospace;
+  --radius-md: var(--radius);
+}
+@layer base {
+  * { border-color: var(--border); }
+  body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-sans); font-size: 14px; }
+  button, input, textarea { font: inherit; }
+  input, textarea { background: var(--background); color: var(--foreground); border: 1px solid var(--input); border-radius: 6px; padding: 10px 12px; }
+  input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  ::selection { background: var(--primary); color: var(--primary-foreground); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

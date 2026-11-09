@@ -1,0 +1,15 @@
+[package]
+name = "veyra-secure-memory"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+zeroize = "=1.8.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_System_Memory", "Win32_System_ErrorReporting", "Win32_System_SystemInformation"] }
+

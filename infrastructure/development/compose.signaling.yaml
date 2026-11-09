@@ -1,0 +1,31 @@
+name: veyra-signaling-operator
+services:
+  signaling:
+    profiles: [operator]
+    build:
+      context: ../..
+      dockerfile: services/signaling/Dockerfile
+    image: veyra-signaling:0.1.0
+    command:
+      - 0.0.0.0:8443
+      - /run/veyra-tls/fullchain.pem
+      - /run/veyra-tls/privkey.pem
+      - /run/veyra-operator/turn-issuer.json
+    user: "${VEYRA_SIGNALING_UID:-10001}:${VEYRA_SIGNALING_GID:-10001}"
+    volumes:
+      - ${VEYRA_SIGNALING_TLS_DIRECTORY:?Set a protected operator TLS directory}:/run/veyra-tls:ro
+      - ${VEYRA_SIGNALING_OPERATOR_DIRECTORY:?Set the protected TURN issuer directory}:/run/veyra-operator:ro
+    ports:
+      - "${VEYRA_SIGNALING_BIND_ADDRESS:-127.0.0.1}:${VEYRA_SIGNALING_PUBLIC_PORT:-8443}:8443/tcp"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=4m
+    logging: {driver: none}
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 64
+    cpus: 1
+    ulimits:
+      core: 0
+      nofile: {soft: 1024, hard: 1024}

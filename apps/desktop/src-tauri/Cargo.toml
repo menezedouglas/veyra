@@ -1,0 +1,28 @@
+[package]
+name = "veyra-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+native-libnice = ["veyra-daemon/native-libnice"]
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+tauri = { version = "=2.12.5", features = [] }
+serde = { version = "=1.0.228", features = ["derive"] }
+veyra-ipc = { path = "../../../crates/ipc" }
+veyra-secure-memory = { path = "../../../crates/secure-memory" }
+veyra-daemon = { path = "../../../crates/daemon" }
+veyra-domain = { path = "../../../crates/domain" }
+veyra-protocol = { path = "../../../crates/protocol" }
+veyra-connectivity = { path = "../../../crates/connectivity" }
+tokio = { version = "=1.54.1", features = ["sync"] }
+zeroize = "=1.8.2"
+
+[[bin]]
+name = "veyra"
+path = "src/main.rs"

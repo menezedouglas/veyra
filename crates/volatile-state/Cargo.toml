@@ -1,0 +1,11 @@
+[package]
+name = "veyra-state"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+thiserror = "=2.0.21"
+veyra-protocol = { path = "../protocol" }
+veyra-domain = { path = "../domain" }

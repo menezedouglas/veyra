@@ -1,0 +1,16 @@
+[package]
+name = "veyra-protocol"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+minicbor = { version = "=0.26.5", features = ["std"] }
+sha2 = "=0.10.9"
+thiserror = "=2.0.21"
+
+serde = { version = "=1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+proptest = { version = "=1.9.0", default-features = false, features = ["std"] }

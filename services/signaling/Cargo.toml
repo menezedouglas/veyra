@@ -1,0 +1,25 @@
+[package]
+name = "veyra-signaling"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+
+[dependencies]
+axum = { version = "=0.8.8", features = ["ws"] }
+axum-server = { version = "=0.8.0", features = ["tls-rustls-no-provider"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "sync", "time", "net"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+ed25519-dalek = "=2.2.0"
+rand = "=0.8.8"
+hex = "=0.4.3"
+sha2 = "=0.10.9"
+futures-util = "=0.3.32"
+minicbor = { version = "=0.26.5", features = ["std"] }
+veyra-protocol = { path = "../../crates/protocol" }
+veyra-identity = { path = "../../crates/identity" }
+zeroize = "=1.8.2"
+hmac = "=0.12.1"
+sha1 = "=0.10.7"
+base64 = "=0.22.1"

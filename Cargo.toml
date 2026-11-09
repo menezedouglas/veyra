@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+exclude = ["fuzz", "vendor/glib", "vendor/datachannel"]
+members = ["crates/*", "services/signaling", "apps/desktop/src-tauri", "tests/integration"]
+default-members = [
+  "crates/domain", "crates/protocol", "crates/identity", "crates/crypto",
+  "crates/secure-memory", "crates/messaging", "crates/volatile-state",
+  "crates/connectivity", "crates/transport-webrtc", "crates/ipc",
+  "crates/daemon", "crates/vault", "crates/session-runtime", "services/signaling", "tests/integration"
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+
+[profile.release]
+panic = "abort"
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
+
+[patch.crates-io]
+# Backport of gtk-rs/gtk-rs-core b5a4071; preserves the GTK 3 ABI required by Tauri.
+glib = { path = "vendor/glib" }
+# Local FFI string-buffer fix; see vendor/datachannel/README.veyra.md.
+datachannel = { path = "vendor/datachannel" }
+
