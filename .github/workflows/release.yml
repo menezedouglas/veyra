@@ -1,115 +1,204 @@
-name: Package validated Veyra release
+name: Build Veyra release drafts
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag matching Cargo/package version (e.g. v0.1.0)
+        description: Version tag matching the application manifests (e.g. v0.1.0)
         required: true
         type: string
+      channel:
+        description: Experimental draft, or production draft requiring all acceptance evidence
+        required: true
+        default: experimental
+        type: choice
+        options:
+          - experimental
+          - production
 permissions:
   contents: read
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+env:
+  PYTHONUTF8: "1"
 jobs:
   evidence:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: python3 scripts/release-gate.py
+          fetch-depth: 0
+      - name: Test release validation and artifact preparation
+        run: python3 -m unittest discover -s tests/scripts -p 'test_*.py'
+      - name: Validate channel, version and release evidence
+        env:
+          VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+          VEYRA_RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: |
+          python3 scripts/release-gate.py \
+            --channel "$VEYRA_RELEASE_CHANNEL" \
+            --tag "$VEYRA_RELEASE_TAG" \
+            --report release-evidence.json \
+            --summary "$GITHUB_STEP_SUMMARY"
+      - name: Verify existing tag points to the selected commit
+        env:
+          VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          if tagged_commit=$(git rev-parse -q --verify "refs/tags/$VEYRA_RELEASE_TAG^{commit}"); then
+            if [ "$tagged_commit" != "$GITHUB_SHA" ]; then
+              echo "::error::The requested tag already points to another commit. Select that commit or use a new version."
+              exit 1
+            fi
+          fi
+      - name: Preserve release evidence, including blocked production requests
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-evidence
+          path: release-evidence.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 7
   packages:
     needs: evidence
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-24.04
+            toolchain: 1.99.1-x86_64-unknown-linux-gnu
             bundles: deb
             config: src-tauri/tauri.native-linux.conf.json
           - os: windows-2025
+            toolchain: 1.99.1-x86_64-pc-windows-msvc
             bundles: nsis
             config: src-tauri/tauri.release.conf.json
     runs-on: ${{ matrix.os }}
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - name: Linux build prerequisites
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev libnice-dev libclang-dev cmake pkg-config
-      - run: rustup toolchain install 1.99.1 --profile minimal
-      - run: npm install --global pnpm@12.18.0
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: cargo test --locked
-      - name: Stage validated Linux native backend
+      - name: Install the pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Install the pinned pnpm with its required lifecycle scripts
+        run: npm install --global pnpm@12.18.0 --allow-scripts=pnpm
+      - name: Check pnpm executable
+        run: pnpm --version
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Frontend tests
+        run: pnpm test
+      - name: Launcher tests
+        run: pnpm test:scripts
+      - name: Rust and real process IPC tests
+        run: cargo test --locked
+      - name: Windows real WSS product session
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        run: python tests/integration/run_product_windows.py --report target/windows-product-report.json
+      - name: Stage Linux native backend
         if: runner.os == 'Linux'
         env:
           CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/infrastructure/development/libdatachannel-nice.cmake
         run: python3 scripts/prepare-sidecars.py --native-libnice
-      - name: Stage Windows baseline (release gate requires platform evidence)
+      - name: Stage Windows internal binaries
         if: runner.os == 'Windows'
         run: python scripts/prepare-sidecars.py
-      - name: Build Linux package
+      - name: Build Linux installer
         if: runner.os == 'Linux'
         env:
           CMAKE_TOOLCHAIN_FILE: ${{ github.workspace }}/infrastructure/development/libdatachannel-nice.cmake
         run: pnpm desktop build --features native-libnice --config ${{ matrix.config }} --bundles ${{ matrix.bundles }}
-      - name: Build Windows package
+      - name: Build Windows installer
         if: runner.os == 'Windows'
         run: pnpm desktop build --config ${{ matrix.config }} --bundles ${{ matrix.bundles }}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: Preserve Windows process test evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-product-evidence
+          path: target/windows-product-report.json
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 7
+      - name: Preserve unsigned installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Veyra-${{ runner.os }}-unsigned
           path: |
             target/release/bundle/deb/*.deb
             target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
   draft-release:
-    needs: packages
+    needs: [evidence, packages]
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - name: Download both platform installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: Veyra-*-unsigned
           path: release-artifacts
           merge-multiple: true
-      - name: Check requested version
-        env:
-          VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+      - name: Download validated release evidence
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-evidence
+          path: release-metadata
+      - name: Prepare installers, evidence, notes and checksums
         run: |
-          python3 - <<'PY'
-          import json,os,re
-          tag=os.environ['VEYRA_RELEASE_TAG']
-          assert re.fullmatch(r'v\d+\.\d+\.\d+',tag)
-          assert tag[1:]==json.load(open('package.json'))['version']
-          PY
-      - name: Create unsigned draft with checksums
+          python3 scripts/prepare-release.py \
+            --artifacts release-artifacts \
+            --evidence release-metadata/release-evidence.json \
+            --output release-files \
+            --notes release-notes.md
+      - name: Create or refresh unsigned draft
         env:
           GH_TOKEN: ${{ github.token }}
           VEYRA_RELEASE_TAG: ${{ inputs.tag }}
+          VEYRA_RELEASE_CHANNEL: ${{ inputs.channel }}
         shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib,shutil
+          prerelease=false
+          title="Veyra $VEYRA_RELEASE_TAG"
+          if [ "$VEYRA_RELEASE_CHANNEL" = experimental ]; then
+            prerelease=true
+            title="$title (experimental)"
+          fi
+          mapfile -d '' veyra_assets < <(find release-files -maxdepth 1 -type f -print0)
+          if gh release view "$VEYRA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft > existing-release.json; then
+            python3 - <<'PY'
+          import json
           from pathlib import Path
-          destination=Path('release-files');destination.mkdir()
-          checksums=[]
-          for source in sorted(Path('release-artifacts').rglob('*')):
-              if source.suffix not in ('.deb','.exe'):continue
-              target=destination/source.name
-              assert not target.exists(),'Duplicate asset basename'
-              shutil.copy2(source,target)
-              checksums.append(hashlib.sha256(target.read_bytes()).hexdigest()+'  '+target.name)
-          assert checksums,'No installer artifacts'
-          Path('SHA256SUMS').write_text('\n'.join(checksums)+'\n')
+          if json.loads(Path('existing-release.json').read_text(encoding='utf-8')).get('isDraft') is not True:
+              raise SystemExit('Refusing to modify a published release. Use a new version.')
           PY
-          mapfile -d '' veyra_assets < <(find release-files -type f -print0)
-          gh release create "$VEYRA_RELEASE_TAG" "${veyra_assets[@]}" SHA256SUMS --draft --target "$GITHUB_SHA" --title "Veyra $VEYRA_RELEASE_TAG" --notes "Unsigned packages. Review checksums and the validated acceptance matrix before publishing. No independent audit is claimed."
+            gh release edit "$VEYRA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft=true --prerelease="$prerelease" --target "$GITHUB_SHA" \
+              --title "$title" --notes-file release-notes.md
+            gh release upload "$VEYRA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${veyra_assets[@]}" --clobber
+          else
+            gh release create "$VEYRA_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${veyra_assets[@]}" \
+              --draft --prerelease="$prerelease" --target "$GITHUB_SHA" \
+              --title "$title" --notes-file release-notes.md
+          fi

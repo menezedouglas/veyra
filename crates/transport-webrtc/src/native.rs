@@ -331,15 +331,21 @@ impl NativeWebRtcPeer {
             .map_err(|_| TransportError::Backend)
     }
     pub async fn wait_open(&self) -> Result<()> {
-        if self.channel.lock().await.is_none() {
-            let dc = tokio::time::timeout(TIMEOUT, self.remote_channel.lock().await.recv())
-                .await
-                .map_err(|_| TransportError::Timeout)?
-                .ok_or(TransportError::Closed)?;
-            *self.channel.lock().await = Some(dc);
-        }
-        let mut opened = self.opened.clone();
-        tokio::time::timeout(TIMEOUT, async {
+        self.wait_open_for(TIMEOUT).await
+    }
+    pub async fn wait_open_for(&self, timeout: Duration) -> Result<()> {
+        tokio::time::timeout(timeout, async {
+            if self.channel.lock().await.is_none() {
+                let dc = self
+                    .remote_channel
+                    .lock()
+                    .await
+                    .recv()
+                    .await
+                    .ok_or(TransportError::Closed)?;
+                *self.channel.lock().await = Some(dc);
+            }
+            let mut opened = self.opened.clone();
             while !*opened.borrow_and_update() {
                 if self.data.failed.load(Ordering::Acquire) {
                     return Err(TransportError::Closed);

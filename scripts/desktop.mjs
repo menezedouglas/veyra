@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -72,7 +72,7 @@ export function windowsToolchain(channel, arch = process.arch) {
 }
 
 export function needsLocalOperator(mode, env) {
-  return mode === 'dev' && env.VEYRA_DEV_LOCAL_OPERATOR !== '0'
+  return mode === 'dev' && env.VEYRA_DEV_LOCAL_OPERATOR === '1'
     && !Object.hasOwn(env, 'VEYRA_SIGNALING_ENDPOINT')
     && !Object.hasOwn(env, 'VEYRA_DEFAULT_SIGNALING_ENDPOINT')
 }
@@ -119,10 +119,44 @@ function preflightRust(env) {
   }
 }
 
-function python(env) {
+export function pythonCandidates(env, installedDirectories = [], platform = process.platform) {
+  const windows = platform === 'win32'
+  const paths = windows ? path.win32 : path.posix
+  const pathKey = Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? 'PATH'
+  const directories = (env[pathKey] ?? '').split(windows ? ';' : ':').filter(Boolean)
+  const candidates = []
   for (const [name, options] of [['python', []], ['python3', []], ['py', ['-3']]]) {
-    const command = executable(name, env)
-    if (command && spawnSync(command, [...options, '-c', 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)'], { env, stdio: 'ignore', windowsHide: true }).status === 0) return [command, options]
+    for (const directory of directories) candidates.push([paths.join(directory.replace(/^"(.*)"$/, '$1'), name + (windows ? '.exe' : '')), options])
+  }
+  if (windows) {
+    if (env.LOCALAPPDATA) {
+      const installations = paths.join(env.LOCALAPPDATA, 'Programs', 'Python')
+      candidates.push([paths.join(installations, 'Launcher', 'py.exe'), ['-3']])
+      for (const directory of installedDirectories.filter(value => /^Python\d+[A-Za-z0-9_-]*$/.test(value)).sort((a, b) => b.localeCompare(a, 'en', { numeric: true }))) {
+        candidates.push([paths.join(installations, directory, 'python.exe'), []])
+      }
+    }
+    candidates.push([paths.join(env.WINDIR || env.SystemRoot || 'C:\\Windows', 'py.exe'), ['-3']])
+  }
+  const seen = new Set()
+  return candidates.filter(([command]) => {
+    const key = windows ? command.toLowerCase() : command
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function python(env) {
+  let installedDirectories = []
+  if (process.platform === 'win32' && env.LOCALAPPDATA) {
+    try {
+      installedDirectories = readdirSync(path.join(env.LOCALAPPDATA, 'Programs', 'Python'), { withFileTypes: true })
+        .filter(entry => entry.isDirectory()).map(entry => entry.name)
+    } catch { /* Standard installations are optional; PATH and launchers remain available. */ }
+  }
+  for (const [command, options] of pythonCandidates(env, installedDirectories)) {
+    if (existsSync(command) && spawnSync(command, [...options, '-c', 'import sys; sys.exit(0 if sys.version_info[0] == 3 else 1)'], { env, stdio: 'ignore', windowsHide: true, timeout: 10000 }).status === 0) return [command, options]
   }
   throw new Error('Python 3 não encontrado. Instale-o para preparar os binários internos do desktop.')
 }

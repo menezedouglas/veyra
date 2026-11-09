@@ -32,7 +32,7 @@ watch(() => props.deliveryUpdates, values => {
   }
   updates.value = next.slice(-128)
 }, { immediate: true })
-const verifiedPeers = computed(() => props.peers.filter(peer => peer.verified))
+const verifiedPeers = computed(() => props.peers.filter(peer => peer.verified && (peer.route === 'direct' || peer.route === 'relay')))
 const bytes = computed(() => new TextEncoder().encode(text.value).length)
 const validation = computed(() => validateText(text.value))
 const labels: Record<Delivery['state'], string> = {

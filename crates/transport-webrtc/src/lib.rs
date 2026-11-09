@@ -19,10 +19,6 @@ pub use webrtc::peer_connection::RTCSessionDescription;
 mod native;
 #[cfg(feature = "native-libnice")]
 mod tls_turn;
-#[cfg(feature = "native-libnice")]
-pub use native::NativeWebRtcPeer as WebRtcPeer;
-#[cfg(not(feature = "native-libnice"))]
-pub type WebRtcPeer = RustWebRtcPeer;
 use webrtc::{
     data_channel::{DataChannel, DataChannelEvent, RTCDataChannelInit},
     peer_connection::{
@@ -58,6 +54,116 @@ impl std::fmt::Display for TransportError {
 impl std::error::Error for TransportError {}
 type Result<T> = std::result::Result<T, TransportError>;
 
+/// Operator sessions use the configured backend. Manual sessions use the Rust
+/// UDP backend on both platforms so their invitation deadline controls initial
+/// ICE attempts without relying on libnice's unexposed connection timers.
+pub enum WebRtcPeer {
+    Rust(RustWebRtcPeer),
+    #[cfg(feature = "native-libnice")]
+    Native(native::NativeWebRtcPeer),
+}
+
+impl WebRtcPeer {
+    pub async fn new(config: TransportConfig) -> Result<Self> {
+        #[cfg(feature = "native-libnice")]
+        {
+            native::NativeWebRtcPeer::new(config)
+                .await
+                .map(Self::Native)
+        }
+        #[cfg(not(feature = "native-libnice"))]
+        {
+            RustWebRtcPeer::new(config).await.map(Self::Rust)
+        }
+    }
+
+    pub async fn new_manual(config: TransportConfig, budget: Duration) -> Result<Self> {
+        if !config.ice_servers.is_empty()
+            || !config.tls_roots_der.is_empty()
+            || config.relay_only
+            || budget.is_zero()
+            || budget > Duration::from_secs(300)
+        {
+            return Err(TransportError::Configuration);
+        }
+        RustWebRtcPeer::new_with_manual_budget(config, Some(budget))
+            .await
+            .map(Self::Rust)
+    }
+
+    pub fn tls_session_count(&self) -> usize {
+        match self {
+            Self::Rust(peer) => peer.tls_session_count(),
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.tls_session_count(),
+        }
+    }
+
+    pub async fn offer(&self) -> Result<RTCSessionDescription> {
+        match self {
+            Self::Rust(peer) => peer.offer().await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.offer().await,
+        }
+    }
+    pub async fn answer(&self, offer: RTCSessionDescription) -> Result<RTCSessionDescription> {
+        match self {
+            Self::Rust(peer) => peer.answer(offer).await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.answer(offer).await,
+        }
+    }
+    pub async fn accept_answer(&self, answer: RTCSessionDescription) -> Result<()> {
+        match self {
+            Self::Rust(peer) => peer.accept_answer(answer).await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.accept_answer(answer).await,
+        }
+    }
+    pub async fn wait_open(&self) -> Result<()> {
+        match self {
+            Self::Rust(peer) => peer.wait_open().await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.wait_open().await,
+        }
+    }
+    pub async fn wait_open_for(&self, timeout: Duration) -> Result<()> {
+        match self {
+            Self::Rust(peer) => peer.wait_open_for(timeout).await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.wait_open_for(timeout).await,
+        }
+    }
+    pub async fn send(&self, frame: &[u8]) -> Result<()> {
+        match self {
+            Self::Rust(peer) => peer.send(frame).await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.send(frame).await,
+        }
+    }
+    pub async fn recv(&self) -> Result<Vec<u8>> {
+        match self {
+            Self::Rust(peer) => peer.recv().await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.recv().await,
+        }
+    }
+    pub async fn route(&self) -> Route {
+        match self {
+            Self::Rust(peer) => peer.route().await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.route().await,
+        }
+    }
+    pub async fn close(&self) -> Result<()> {
+        match self {
+            Self::Rust(peer) => peer.close().await,
+            #[cfg(feature = "native-libnice")]
+            Self::Native(peer) => peer.close().await,
+        }
+    }
+}
+
 /// Structural validation for the actually selected backend, without making
 /// network calls or creating plaintext queues.
 pub fn validate_config(config: &TransportConfig) -> Result<()> {
@@ -71,6 +177,43 @@ pub fn validate_config(config: &TransportConfig) -> Result<()> {
         }
         _ => TransportError::Configuration,
     })
+}
+
+/// Select only transports implemented by this build from an automatic operator
+/// grant. Validate the complete grant first, including URLs we cannot use. An
+/// explicit local configuration still goes through `validate_config` unchanged.
+/// URLs are never rewritten, so a TLS endpoint cannot become cleartext TURN.
+pub fn select_automatic_config(config: TransportConfig) -> Result<TransportConfig> {
+    config
+        .validate_native()
+        .map_err(|_| TransportError::Configuration)?;
+    #[cfg(not(feature = "native-libnice"))]
+    let config = {
+        let mut config = config;
+        let advertised_turn = config.ice_servers.iter().any(|server| {
+            server
+                .urls
+                .iter()
+                .any(|url| url.starts_with("turn:") || url.starts_with("turns:"))
+        });
+        for server in &mut config.ice_servers {
+            server
+                .urls
+                .retain(|url| !url.starts_with("turns:") && !url.contains("transport=tcp"));
+        }
+        config.ice_servers.retain(|server| !server.urls.is_empty());
+        if advertised_turn
+            && !config
+                .ice_servers
+                .iter()
+                .any(|server| server.urls.iter().any(|url| url.starts_with("turn:")))
+        {
+            return Err(TransportError::UnsupportedTurnTcpTls);
+        }
+        config
+    };
+    validate_config(&config)?;
+    Ok(config)
 }
 
 struct Handler {
@@ -127,6 +270,12 @@ impl RustWebRtcPeer {
         0
     }
     pub async fn new(config: TransportConfig) -> Result<Self> {
+        Self::new_with_manual_budget(config, None).await
+    }
+    async fn new_with_manual_budget(
+        config: TransportConfig,
+        manual_budget: Option<Duration>,
+    ) -> Result<Self> {
         config.validate().map_err(|e| match e {
             veyra_connectivity::ConfigError::UnsupportedTurnTcpTls => {
                 TransportError::UnsupportedTurnTcpTls
@@ -154,12 +303,20 @@ impl RustWebRtcPeer {
                 RTCIceTransportPolicy::All
             })
             .build();
-        let settings = SettingEngineBuilder::default()
+        let mut settings = SettingEngineBuilder::default()
             .with_multicast_dns_mode(MulticastDnsMode::Disabled)
             .with_sctp_max_message_size(SctpMaxMessageSize::Bounded(MAX_WIRE_FRAME as u32))
             .with_sctp_max_receive_buffer_size(256 * 1024)
-            .with_discard_local_candidates_during_ice_restart(true)
-            .build();
+            .with_discard_local_candidates_during_ice_restart(true);
+        if let Some(budget) = manual_budget {
+            settings = settings
+                .with_ice_timeouts(Some(Duration::from_secs(5)), Some(budget), None)
+                .with_ice_connection_attempts(
+                    Some(Duration::from_millis(200)),
+                    Some((budget.as_millis().div_ceil(200) + 5).min(u16::MAX as u128) as u16),
+                );
+        }
+        let settings = settings.build();
         let pc = PeerConnectionBuilder::new()
             .with_configuration(rtc_config)
             .with_setting_engine(settings)
@@ -321,15 +478,24 @@ impl RustWebRtcPeer {
     }
 
     pub async fn wait_open(&self) -> Result<()> {
-        if self.channel.lock().await.is_none() {
-            let dc = tokio::time::timeout(TIMEOUT, self.remote_channel.lock().await.recv())
-                .await
-                .map_err(|_| TransportError::Timeout)?
-                .ok_or(TransportError::Closed)?;
-            self.install_channel(dc).await?;
-        }
-        let mut opened = self.opened.clone();
-        tokio::time::timeout(TIMEOUT, async {
+        self.wait_open_for(TIMEOUT).await
+    }
+
+    /// A manually exchanged answer can take longer than normal signaling.
+    /// The caller must cap this budget by the original invitation deadline.
+    pub async fn wait_open_for(&self, timeout: Duration) -> Result<()> {
+        tokio::time::timeout(timeout, async {
+            if self.channel.lock().await.is_none() {
+                let dc = self
+                    .remote_channel
+                    .lock()
+                    .await
+                    .recv()
+                    .await
+                    .ok_or(TransportError::Closed)?;
+                self.install_channel(dc).await?;
+            }
+            let mut opened = self.opened.clone();
             while !*opened.borrow_and_update() {
                 opened.changed().await.map_err(|_| TransportError::Closed)?;
             }

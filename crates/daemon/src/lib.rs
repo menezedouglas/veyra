@@ -4,7 +4,7 @@ pub mod network_host;
 pub mod wire;
 mod worker_process;
 pub use network_client::DaemonClient;
-pub use veyra_session_runtime::{invitation_endpoint, signaling_endpoint_valid};
+pub use veyra_session_runtime::{MAX_DIRECT_TOKEN, invitation_endpoint, signaling_endpoint_valid};
 /// Derive the UI identity from the signed document, never a network-child label.
 pub fn validate_peer_metadata(peer: &wire::Peer) -> io::Result<veyra_protocol::IdentityBinding> {
     use veyra_protocol::Frame;
@@ -67,12 +67,12 @@ pub struct ConnectionSetup {
     pub source: &'static str,
     pub reason: Option<String>,
 }
-pub const NO_CONNECTION_SERVICE: &str = "Esta versão ainda não inclui um serviço de conexão. Você pode receber um convite para usar o serviço informado por ele. A conexão padrão deve ser configurada na distribuição do aplicativo.";
+pub const NO_CONNECTION_SERVICE: &str = "Conexão direta sem servidores. Troque um convite e uma resposta entre os aplicativos. Funciona na rede local ou entre endereços diretamente acessíveis; NATs e firewalls podem impedir o acesso pela internet.";
 impl Default for ConnectionSetup {
     fn default() -> Self {
         Self {
-            configured: false,
-            source: "unconfigured",
+            configured: true,
+            source: "direct",
             reason: Some(NO_CONNECTION_SERVICE.into()),
         }
     }

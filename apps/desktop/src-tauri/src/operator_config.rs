@@ -6,7 +6,21 @@ pub struct OperatorConfiguration {
 }
 
 impl OperatorConfiguration {
+    fn direct() -> Self {
+        Self {
+            endpoint: Some(String::new()),
+            setup: ConnectionSetup {
+                configured: true,
+                source: "direct",
+                reason: Some("Conexão direta sem servidor. Troque o convite e a resposta para conectar; redes com NAT restritivo podem impedir a conexão.".into()),
+            },
+        }
+    }
+
     pub fn invitation(endpoint: String) -> Self {
+        if endpoint.is_empty() {
+            return Self::direct();
+        }
         Self {
             endpoint: Some(endpoint),
             setup: ConnectionSetup {
@@ -61,10 +75,7 @@ fn resolve_values(
     } else if let Some(endpoint) = application {
         configured(endpoint, "application")
     } else {
-        OperatorConfiguration {
-            endpoint: None,
-            setup: ConnectionSetup::default(),
-        }
+        OperatorConfiguration::direct()
     }
 }
 
@@ -93,7 +104,7 @@ pub fn resolve(manual: Option<&str>) -> OperatorConfiguration {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_values;
+    use super::{OperatorConfiguration, resolve_values};
 
     const APPLICATION: &str = "wss://application.invalid/v1/rendezvous";
     const ENVIRONMENT: &str = "wss://environment.invalid/v1/rendezvous";
@@ -142,13 +153,26 @@ mod tests {
     }
 
     #[test]
-    fn missing_service_is_a_distribution_limitation_and_preserves_invitation_flow() {
+    fn default_connection_is_direct_and_requires_no_operator() {
         let result = resolve_values(None, None, None);
-        assert!(result.endpoint.is_none());
-        assert!(!result.setup.configured);
-        assert_eq!(result.setup.source, "unconfigured");
+        assert_eq!(result.endpoint.as_deref(), Some(""));
+        assert!(result.setup.configured);
+        assert_eq!(result.setup.source, "direct");
         let reason = result.setup.reason.unwrap();
-        assert!(reason.contains("distribuição"));
-        assert!(reason.contains("convite"));
+        assert!(reason.contains("sem servidor"));
+        assert!(reason.contains("NAT"));
+    }
+
+    #[test]
+    fn direct_invitation_preserves_the_serverless_diagnostics() {
+        let default = resolve_values(None, None, None);
+        let invitation = OperatorConfiguration::invitation(String::new());
+        assert_eq!(invitation.endpoint, default.endpoint);
+        assert_eq!(invitation.setup.source, "direct");
+        assert!(invitation.setup.configured);
+        assert_eq!(invitation.setup.reason, default.setup.reason);
+        let legacy = OperatorConfiguration::invitation(APPLICATION.into());
+        assert_eq!(legacy.endpoint.as_deref(), Some(APPLICATION));
+        assert_eq!(legacy.setup.source, "invitation");
     }
 }

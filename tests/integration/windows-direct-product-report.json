@@ -1,0 +1,41 @@
+{
+  "platform": "windows-x64",
+  "executedDate": "2026-11-09",
+  "toolchain": "1.99.1-x86_64-pc-windows-msvc",
+  "scope": "same-host-four-real-product-processes",
+  "profile": "release-workers-debug-test-coordinator",
+  "test": "direct_product_session_without_external_services",
+  "passed": 1,
+  "failed": 0,
+  "ignored": 0,
+  "durationSeconds": 36.86,
+  "manualAnswerDelaySeconds": 35,
+  "checks": {
+    "no_signaling_stun_or_turn_servers": true,
+    "loopback_candidates_only": true,
+    "explicit_worker_paths_with_empty_path": true,
+    "two_daemons_and_two_isolated_vaults": true,
+    "signed_offer_and_answer_exchange": true,
+    "self_invitation_tampering_and_answer_replay_refused": true,
+    "approval_required_before_key_offers": true,
+    "matching_transcripts_and_explicit_approval": true,
+    "bidirectional_hpke_messages": true,
+    "confirmation_required_and_second_open_refused": true,
+    "selected_route_direct": true,
+    "revocation_discards_pending_message": true,
+    "new_pairing_requires_new_verification": true,
+    "old_verification_code_refused": true,
+    "staged_installer_workers_match_tested_release_workers": true
+  },
+  "sha256": {
+    "Veyra_0.1.0_x64-setup.exe": "ac9b1342a0204d3dd5f478c9bef3fa29810c2cf18104f11aab07848476ae2d7d",
+    "veyra-daemon.exe": "ba0d18dc696af1eb74d6637339eecccfa5b03f67077e2448fc53473ce7b8d35a",
+    "veyra-vault.exe": "55c12f55942cd1c83397db851ac4339271e94858bdedfc5254fd2e14c2d75d41",
+    "direct_session_process_test.exe": "9c88f0b03bf387718435095b3ad2afde82ed511ef347d165616b642d9ea2a1f4"
+  },
+  "graphicalObservation": "debug-window-active-identity-and-serverless-diagnostics-only",
+  "twoComputerValidation": false,
+  "installationValidation": false,
+  "fullGraphicalValidation": false,
+  "failure": null
+}

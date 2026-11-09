@@ -4,10 +4,12 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { desktopPlan, desktopEnvironment, windowsToolchain, needsLocalOperator } from '../../scripts/desktop.mjs'
+import { desktopPlan, desktopEnvironment, windowsToolchain, needsLocalOperator, pythonCandidates } from '../../scripts/desktop.mjs'
 
-test('only unconfigured development starts a local operator and explicit settings never fall back', () => {
-  assert.equal(needsLocalOperator('dev', {}), true)
+test('direct development starts no server; a local operator requires explicit opt-in', () => {
+  assert.equal(needsLocalOperator('dev', {}), false)
+  assert.equal(needsLocalOperator('dev', { VEYRA_DEV_LOCAL_OPERATOR: '1' }), true)
+  assert.equal(needsLocalOperator('dev', { VEYRA_DEV_LOCAL_OPERATOR: '1', VEYRA_SIGNALING_ENDPOINT: '' }), false)
   assert.equal(needsLocalOperator('build:windows', {}), false)
   assert.equal(needsLocalOperator('dev', { VEYRA_SIGNALING_ENDPOINT: '' }), false)
   assert.equal(needsLocalOperator('dev', { VEYRA_SIGNALING_ENDPOINT: 'invalid' }), false)
@@ -56,6 +58,32 @@ test('application arguments do not alter the sidecar target or build profile', (
 test('MSVC host matches the pinned channel and machine architecture', () => {
   assert.equal(windowsToolchain('1.99.1', 'x64'), '1.99.1-x86_64-pc-windows-msvc')
   assert.equal(windowsToolchain('1.99.1', 'arm64'), '1.99.1-aarch64-pc-windows-msvc')
+})
+
+test('Python discovery reaches installed launchers and runtimes after an unusable WindowsApps alias', () => {
+  const env = { Path: 'C:\\Users\\Fixture\\WindowsApps', LOCALAPPDATA: 'C:\\Users\\Fixture User\\AppData\\Local', WINDIR: 'C:\\Windows' }
+  const original = { ...env }
+  const candidates = pythonCandidates(env, ['Python312-32', 'Launcher', 'Python314', '..', 'Python314/escape', 'Python../escape'], 'win32')
+  assert.deepEqual(candidates[0], ['C:\\Users\\Fixture\\WindowsApps\\python.exe', []])
+  assert.deepEqual(candidates.find(([command]) => command.endsWith('Launcher\\py.exe')), ['C:\\Users\\Fixture User\\AppData\\Local\\Programs\\Python\\Launcher\\py.exe', ['-3']])
+  const runtimes = candidates.filter(([command]) => /Python\d[^\\]*\\python\.exe$/.test(command))
+  assert.deepEqual(runtimes, [
+    ['C:\\Users\\Fixture User\\AppData\\Local\\Programs\\Python\\Python314\\python.exe', []],
+    ['C:\\Users\\Fixture User\\AppData\\Local\\Programs\\Python\\Python312-32\\python.exe', []],
+  ])
+  assert.deepEqual(candidates.at(-1), ['C:\\Windows\\py.exe', ['-3']])
+  assert.deepEqual(env, original)
+})
+
+test('Python candidates check every PATH location and avoid duplicate paths or Windows discovery on Linux', () => {
+  assert.deepEqual(pythonCandidates({ PATH: '/usr/local/bin:/usr/bin:/usr/bin', LOCALAPPDATA: '/ignored' }, ['Python314'], 'linux'), [
+    ['/usr/local/bin/python', []], ['/usr/bin/python', []],
+    ['/usr/local/bin/python3', []], ['/usr/bin/python3', []],
+    ['/usr/local/bin/py', ['-3']], ['/usr/bin/py', ['-3']],
+  ])
+  const windows = pythonCandidates({ Path: '"C:\\Python314";c:\\Python314', SystemRoot: 'D:\\Windows' }, [], 'win32')
+  assert.equal(windows.filter(([command]) => command.toLowerCase() === 'c:\\python314\\python.exe').length, 1)
+  assert.deepEqual(windows.at(-1), ['D:\\Windows\\py.exe', ['-3']])
 })
 
 test('Cargo environment target is shared with sidecars and Tauri, and explicit flags override it', () => {

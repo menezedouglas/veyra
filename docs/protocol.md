@@ -97,3 +97,35 @@ significa entrega não confirmada.
 Referências: [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949.html),
 [RFC 9180](https://www.rfc-editor.org/rfc/rfc9180.html),
 [Noise](https://noiseprotocol.org/noise.html).
+
+## Pareamento manual direto (`veyra2:`)
+
+O modo padrão usa troca manual da negociação WebRTC completa. Não abre socket
+de sinalização nem configura servidores ICE. O código é `veyra2:` seguido de
+JSON `SignalPacket` em hexadecimal, limitado a 16.000 caracteres. O documento
+e a assinatura usam a mesma codificação canônica de sinalização existente.
+
+Uma oferta tem `role=0`, `operation=2`, `sequence=1` e destinatário zero; uma
+resposta tem `role=1`, `operation=3`, `sequence=1` e o destinatário igual à
+identidade da oferta. O payload contém o `RTCSessionDescription` completo.
+Sala aleatória de 256 bits, prazo original (até 300 s), documento de identidade,
+papel, destinatário e SDP estão cobertos pela assinatura. A resposta conserva
+a sala e o prazo da oferta. Seu consumo remove atomicamente a oferta pendente.
+
+Cada lado valida assinatura, binding, formato, papel e prazo antes de criar
+transporte. O remetente também compara sala, destinatário e prazo com a oferta
+guardada em RAM. Apenas candidatos host são aceitos; o modo direto recusa
+configuração STUN/TURN, relay-only e raízes TLS de operador. Há no máximo quatro
+negociações simultâneas e um cache limitado de salas recebidas contra replay.
+Os prazos locais usam o relógio monotônico e não são renovados pela importação.
+
+Após importar a resposta, ambos executam o mesmo handshake Noise XX, com
+prologue vinculado à sala e às identidades, e exigem comparação/aprovação local
+do código de verificação. As mensagens continuam em envelopes HPKE sobre
+Noise sobre DataChannel confiável/ordenado e DTLS. Um pareamento substituto
+para contato offline cria um novo transcript e exige nova aprovação; ofertas
+de chaves do canal anterior não são aceitas pelo novo canal.
+
+Os códigos contêm endereços/candidatos de rede públicos para quem os receber.
+Assinatura não fornece confidencialidade da negociação. Sem servidores STUN
+ou TURN, redes sem caminho direto não possuem fallback externo neste modo.

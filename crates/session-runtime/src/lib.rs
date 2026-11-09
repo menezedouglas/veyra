@@ -8,7 +8,7 @@ use std::{
     collections::{HashMap, VecDeque},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -33,6 +33,9 @@ use veyra_protocol::{
 use veyra_signaling::SignalPacket;
 use veyra_transport::{RTCSessionDescription, WebRtcPeer};
 use zeroize::{Zeroize, Zeroizing};
+
+mod direct;
+pub use direct::MAX_DIRECT_TOKEN;
 
 const MAX_INVITES: usize = 4;
 const MAX_EVENTS: usize = 128;
@@ -162,6 +165,10 @@ fn parse_invitation(token: &str, now: u64) -> Result<ValidatedInvite> {
 /// Validate a received invitation before using its public operator endpoint.
 /// The signed identity binding does not replace human fingerprint verification.
 pub fn invitation_endpoint(token: &str) -> Result<String> {
+    if token.starts_with("veyra2:") {
+        direct::parse_token(token, unix()?)?;
+        return Ok(String::new());
+    }
     Ok(parse_invitation(token, unix()?)?.endpoint)
 }
 
@@ -203,6 +210,7 @@ fn apply_turn_grant(
             username: std::mem::take(&mut g.username),
             credential: std::mem::take(&mut g.credential),
         });
+        return veyra_transport::select_automatic_config(config).map_err(|_| Error::Configuration);
     }
     veyra_transport::validate_config(&config).map_err(|_| Error::Configuration)?;
     Ok(config)
@@ -213,6 +221,7 @@ struct PublicOffer {
     deadline: Deadline,
 }
 struct PeerHandle {
+    connection_id: u64,
     status: PeerStatus,
     offers: VecDeque<PublicOffer>,
     command: mpsc::Sender<PeerCommand>,
@@ -233,11 +242,34 @@ struct PairingSignal {
     room: [u8; 32],
     expires: u64,
     role: u8,
+    deadline: Deadline,
 }
 struct State {
     peers: HashMap<String, PeerHandle>,
     invites: usize,
     events: VecDeque<RuntimeEvent>,
+}
+impl State {
+    fn insert_peer(&mut self, id: String, peer: PeerHandle) -> Result<()> {
+        if self.peers.get(&id).is_some_and(|p| p.status.online)
+            || (!self.peers.contains_key(&id) && self.peers.len() >= MAX_PEERS)
+        {
+            return Err(Error::Capacity);
+        }
+        self.peers.insert(id, peer);
+        Ok(())
+    }
+
+    fn disconnect_peer(&mut self, id: &str, connection_id: u64) {
+        if let Some(p) = self.peers.get_mut(id)
+            && p.connection_id == connection_id
+        {
+            p.status.online = false;
+            p.status.verified = false;
+            p.offers.clear();
+            p.status.available_offers = 0;
+        }
+    }
 }
 pub struct Runtime {
     config: RuntimeConfig,
@@ -246,6 +278,8 @@ pub struct Runtime {
     state: Mutex<State>,
     ended: AtomicBool,
     cancellation: watch::Sender<bool>,
+    next_connection: AtomicU64,
+    direct: Mutex<direct::DirectState>,
 }
 fn boot() -> Result<u64> {
     veyra_secure_memory::monotonic_ms().map_err(|_| Error::Closed)
@@ -279,7 +313,14 @@ impl Runtime {
             gathering_config.relay_only = false;
         }
         let valid_transport = veyra_transport::validate_config(&gathering_config).is_ok();
-        if !signaling_endpoint_valid(&config.endpoint) || !valid_transport {
+        let direct = config.endpoint.is_empty();
+        if (!direct && !signaling_endpoint_valid(&config.endpoint))
+            || !valid_transport
+            || (direct
+                && (!config.transport.ice_servers.is_empty()
+                    || !config.transport.tls_roots_der.is_empty()
+                    || config.transport.relay_only))
+        {
             return Err(Error::Configuration);
         }
         if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -302,6 +343,8 @@ impl Runtime {
             }),
             ended: AtomicBool::new(false),
             cancellation,
+            next_connection: AtomicU64::new(1),
+            direct: Mutex::new(direct::DirectState::default()),
         }))
     }
     pub fn binding(&self) -> IdentityBinding {
@@ -366,6 +409,9 @@ impl Runtime {
         result
     }
     async fn create_inner(self: &Arc<Self>) -> Result<Invite> {
+        if self.config.endpoint.is_empty() {
+            return self.create_direct_invite().await;
+        }
         let random = veyra_identity::random_secret().map_err(|_| Error::Invitation)?;
         let room = *random;
         let expires = unix()?
@@ -444,6 +490,15 @@ impl Runtime {
             }
         });
         Ok(())
+    }
+    /// Accept either an operator invitation or one half of a manual direct
+    /// exchange. A direct offer returns the answer to carry back to its sender.
+    pub async fn exchange_invite(self: &Arc<Self>, token: &str) -> Result<Option<Invite>> {
+        if token.starts_with("veyra2:") {
+            return self.exchange_direct_invite(token).await;
+        }
+        self.join_invite(token).await?;
+        Ok(None)
     }
     async fn attach(
         &self,
@@ -601,7 +656,43 @@ impl Runtime {
                 )
                 .await?;
             }
-            peer.wait_open().await.map_err(|_| Error::Connection)?;
+            Ok::<_, Error>(())
+        }
+        .await;
+        if let Err(error) = exchange {
+            let _ = peer.close().await;
+            return Err(error);
+        }
+        let remaining = expires
+            .saturating_sub(unix()?)
+            .saturating_mul(1000)
+            .min(300_000);
+        let deadline = Deadline::new(boot()?, remaining as u32).map_err(|_| Error::Invitation)?;
+        self.finish_establish(peer, Some(ws), room, expires, initiator, remote, deadline)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn finish_establish(
+        self: &Arc<Self>,
+        peer: Arc<WebRtcPeer>,
+        socket: Option<Socket>,
+        room: [u8; 32],
+        expires: u64,
+        initiator: bool,
+        remote: IdentityBinding,
+        deadline: Deadline,
+    ) -> Result<()> {
+        self.active()?;
+        let exchange = async {
+            let wait = if socket.is_some() {
+                Duration::from_secs(15)
+            } else {
+                Duration::from_millis(deadline.remaining_ms(boot()?))
+            };
+            peer.wait_open_for(wait)
+                .await
+                .map_err(|_| Error::Connection)?;
             let (i, r) = if initiator {
                 (&self.binding, &remote)
             } else {
@@ -648,16 +739,30 @@ impl Runtime {
             }
         };
         let id = hex::encode(remote.identity);
+        let connection_id = self
+            .next_connection
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .map_err(|_| Error::Capacity)?;
         let (tx, rx) = mpsc::channel(8);
+        let route = peer.route().await;
         {
             let mut s = self.state.lock().await;
-            if s.peers.contains_key(&id) || s.peers.len() >= MAX_PEERS {
+            if let Err(error) = self.active() {
+                drop(s);
+                let _ = peer.close().await;
+                return Err(error);
+            }
+            if s.events.len() >= MAX_EVENTS {
+                self.ended.store(true, Ordering::Release);
+                self.cancellation.send_replace(true);
+                drop(s);
                 let _ = peer.close().await;
                 return Err(Error::Capacity);
             }
-            s.peers.insert(
+            let inserted = s.insert_peer(
                 id.clone(),
                 PeerHandle {
+                    connection_id,
                     status: PeerStatus {
                         id: id.clone(),
                         binding_frame: Frame::IdentityBinding(remote.clone()).encode(),
@@ -665,40 +770,49 @@ impl Runtime {
                         verification_code: code.clone(),
                         verified: false,
                         online: true,
-                        route: peer.route().await,
+                        route,
                         available_offers: 0,
                     },
                     offers: VecDeque::new(),
                     command: tx,
                 },
             );
+            if let Err(error) = inserted {
+                drop(s);
+                let _ = peer.close().await;
+                return Err(error);
+            }
+            s.events.push_back(RuntimeEvent::PeerChanged {
+                peer_id: id.clone(),
+            });
         }
-        self.event(RuntimeEvent::PeerChanged {
-            peer_id: id.clone(),
-        })
-        .await?;
         // Keep rendezvous alive until BOTH explicit local approvals have crossed
         // the authenticated Noise channel. An unfinished pairing keeps its original deadline.
         let signaling = PairingSignal {
-            socket: Some(ws),
+            socket,
             room,
             expires,
             role: if initiator { 0 } else { 1 },
+            deadline,
         };
         let this = self.clone();
         tokio::spawn(async move {
             let _ = this
-                .peer_loop(id.clone(), remote, peer.clone(), noise, code, rx, signaling)
+                .peer_loop(
+                    id.clone(),
+                    connection_id,
+                    remote,
+                    peer.clone(),
+                    noise,
+                    code,
+                    rx,
+                    signaling,
+                )
                 .await;
             let _ = peer.close().await;
             {
                 let mut s = this.state.lock().await;
-                if let Some(p) = s.peers.get_mut(&id) {
-                    p.status.online = false;
-                    p.status.verified = false;
-                    p.offers.clear();
-                    p.status.available_offers = 0;
-                }
+                s.disconnect_peer(&id, connection_id);
             }
             let _ = this.event(RuntimeEvent::PeerChanged { peer_id: id }).await;
         });
@@ -775,6 +889,18 @@ impl Runtime {
     pub async fn end(&self) {
         self.ended.store(true, Ordering::Release);
         self.cancellation.send_replace(true);
+        let pending: Vec<_> = self
+            .direct
+            .lock()
+            .await
+            .offers
+            .drain()
+            .map(|(_, p)| p.peer)
+            .collect();
+        for peer in pending {
+            let _ = peer.close().await;
+        }
+        self.direct.lock().await.seen.clear();
         let mut s = self.state.lock().await;
         for (_, p) in s.peers.drain() {
             let _ = p.command.try_send(PeerCommand::Close);
@@ -803,6 +929,7 @@ impl Runtime {
     async fn peer_loop(
         &self,
         id: String,
+        connection_id: u64,
         remote: IdentityBinding,
         peer: Arc<WebRtcPeer>,
         mut noise: NoiseChannel,
@@ -810,12 +937,7 @@ impl Runtime {
         mut commands: mpsc::Receiver<PeerCommand>,
         mut signaling: PairingSignal,
     ) -> Result<()> {
-        let remaining = signaling
-            .expires
-            .saturating_sub(unix()?)
-            .saturating_mul(1000)
-            .min(300_000) as u32;
-        let pairing_deadline = Deadline::new(boot()?, remaining).map_err(|_| Error::Invitation)?;
+        let pairing_deadline = signaling.deadline;
         let mut local_approved = false;
         let mut remote_approved = false;
         let mut offered = false;
@@ -829,6 +951,16 @@ impl Runtime {
             if self.active().is_err() {
                 return Err(Error::Closed);
             }
+            if !self
+                .state
+                .lock()
+                .await
+                .peers
+                .get(&id)
+                .is_some_and(|p| p.connection_id == connection_id)
+            {
+                return Err(Error::Closed);
+            }
             if !offered && pairing_deadline.expired(boot()?) {
                 return Err(Error::Invitation);
             }
@@ -838,7 +970,7 @@ impl Runtime {
               Some(PeerCommand::Approve{code:approved,reply})=>{
                if approved!=code||local_approved{let _=reply.send(Err(Error::Authentication));continue}
                local_approved=true;let sent=Self::send_frame(&peer,&mut noise,Frame::Hello(self.binding.runtime_id)).await;
-               if sent.is_ok(){let mut s=self.state.lock().await;if let Some(p)=s.peers.get_mut(&id){p.status.verified=true;}}
+               if sent.is_ok(){let mut s=self.state.lock().await;if let Some(p)=s.peers.get_mut(&id).filter(|p|p.connection_id==connection_id){p.status.verified=true;}else{return Err(Error::Closed)}}
                let failed=sent.is_err();let _=reply.send(sent);if failed{return Err(Error::Connection)}
               },
               Some(PeerCommand::Send{envelope,reply})=>{
@@ -860,13 +992,16 @@ impl Runtime {
                Frame::KeyOffer(offer)=>{
                 if !local_approved||!remote_approved||offer.sender!=self.binding.identity||offer.recipient!=remote.identity||offer.sender_runtime!=self.binding.runtime_id||offer.recipient_runtime!=remote.runtime_id||veyra_identity::verify_offer(&offer).is_err(){return Err(Error::Authentication)}
                 let deadline=Deadline::new(boot()?,offer.ttl_ms).map_err(|_|Error::NoOffer)?;
-                let mut s=self.state.lock().await;let p=s.peers.get_mut(&id).ok_or(Error::Closed)?;
+                let mut s=self.state.lock().await;let p=s.peers.get_mut(&id).filter(|p|p.connection_id==connection_id).ok_or(Error::Closed)?;
                 if p.offers.len()>=16||p.offers.iter().any(|o|o.offer.key_id==offer.key_id){return Err(Error::Capacity)}p.offers.push_back(PublicOffer{offer,deadline});p.status.available_offers=p.offers.len();
                },
                Frame::Message(envelope)=>{
                 if !local_approved||!remote_approved||envelope.header.sender!=remote.identity{return Err(Error::Authentication)}
                 let message_id=envelope.header.message_id;let key_id=envelope.header.key_id;let ttl=envelope.header.ttl_ms;let first=!received.contains_key(&message_id);
                 let original_deadline=issued.get(&key_id).copied();
+                // A fresh pairing cannot accept envelopes sealed with offers
+                // from a previous channel, even when both runtimes survived.
+                if first&&original_deadline.is_none(){return Err(Error::Authentication)}
                 if first&&received.len()>=16{return Err(Error::Capacity)}
                 let receipt=self.port.accept_envelope(envelope).await?;
                 if first{issued.remove(&key_id);received.insert(message_id,original_deadline.unwrap_or(Deadline::new(boot()?,ttl).map_err(|_|Error::Authentication)?));}
@@ -884,7 +1019,7 @@ impl Runtime {
               let now=boot()?;received.retain(|_,d|!d.expired(now));issued.retain(|_,d|!d.expired(now));let expired:Vec<_>=retries.iter().filter(|(_,(_,d,_))|d.expired(now)).map(|(id,_)|*id).collect();
               for message in expired{retries.remove(&message);self.event(RuntimeEvent::Delivery{message_id:hex::encode(message),status:"delivery_unconfirmed"}).await?;}outbox.expire(now);
               for(envelope,deadline,last)in retries.values_mut(){if !deadline.expired(now)&&now.saturating_sub(*last)>=2000{Self::send_frame(&peer,&mut noise,Frame::Message(envelope.clone())).await?;*last=now;}}
-              let route=peer.route().await;let mut s=self.state.lock().await;if let Some(p)=s.peers.get_mut(&id){p.status.route=route;p.offers.retain(|o|!o.deadline.expired(now));p.status.available_offers=p.offers.len();}
+              let route=peer.route().await;let mut s=self.state.lock().await;if let Some(p)=s.peers.get_mut(&id).filter(|p|p.connection_id==connection_id){p.status.route=route;p.offers.retain(|o|!o.deadline.expired(now));p.status.available_offers=p.offers.len();}else{return Err(Error::Closed)}
              }
             }
             if local_approved && remote_approved && !offered {
@@ -997,6 +1132,56 @@ fn validate_signal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn peer_handle(connection_id: u64, online: bool) -> PeerHandle {
+        let (command, _) = mpsc::channel(1);
+        PeerHandle {
+            connection_id,
+            status: PeerStatus {
+                id: "peer".into(),
+                binding_frame: Vec::new(),
+                fingerprint: String::new(),
+                verification_code: format!("connection-{connection_id}"),
+                verified: false,
+                online,
+                route: Route::Direct,
+                available_offers: 0,
+            },
+            offers: VecDeque::new(),
+            command,
+        }
+    }
+
+    #[test]
+    fn new_pairing_replaces_only_offline_peers_and_stale_cleanup_cannot_revoke_it() {
+        let mut state = State {
+            peers: HashMap::new(),
+            invites: 0,
+            events: VecDeque::new(),
+        };
+        let mut first = peer_handle(1, true);
+        first.status.verified = true;
+        state.insert_peer("peer".into(), first).unwrap();
+        assert!(matches!(
+            state.insert_peer("peer".into(), peer_handle(2, true)),
+            Err(Error::Capacity)
+        ));
+        state.disconnect_peer("peer", 1);
+        assert!(!state.peers["peer"].status.verified);
+        state
+            .insert_peer("peer".into(), peer_handle(2, true))
+            .unwrap();
+        // The previous task can finish after revocation and a fresh pairing.
+        state.disconnect_peer("peer", 1);
+        let replacement = &state.peers["peer"];
+        assert!(replacement.status.online);
+        assert!(!replacement.status.verified);
+        assert_eq!(replacement.status.verification_code, "connection-2");
+        assert!(replacement.offers.is_empty());
+        assert_eq!(replacement.status.available_offers, 0);
+        state.disconnect_peer("peer", 2);
+        assert!(!state.peers["peer"].status.online);
+    }
 
     fn invitation_fixture(expires_unix: u64) -> InviteToken {
         let identity = veyra_identity::RuntimeIdentity::generate().unwrap();
@@ -1192,5 +1377,70 @@ mod turn_grant_tests {
             cfg.ice_servers[0].urls[0],
             "turn:localhost:3479?transport=udp"
         );
+    }
+
+    #[test]
+    fn mixed_automatic_grant_uses_only_supported_urls_without_rewriting_them() {
+        let mut automatic = grant(unix().unwrap() + 60);
+        automatic.urls = vec![
+            "stun:localhost:3478".into(),
+            "turn:localhost:3478?transport=udp".into(),
+            "turn:localhost:3478?transport=tcp".into(),
+            "turns:localhost:5349?transport=tcp".into(),
+        ];
+        let expected = if cfg!(feature = "native-libnice") {
+            automatic.urls.clone()
+        } else {
+            automatic.urls[..2].to_vec()
+        };
+        let config = apply_turn_grant(TransportConfig::default(), Some(automatic)).unwrap();
+        assert_eq!(config.ice_servers[0].urls, expected);
+    }
+
+    #[test]
+    fn unsupported_entries_are_validated_before_any_selection() {
+        for urls in [
+            vec![
+                "turn:localhost:3478?transport=udp".into(),
+                "turns:localhost:5349?transport=invalid".into(),
+            ],
+            vec!["turns:localhost:5349?transport=tcp".into(); 5],
+        ] {
+            let mut automatic = grant(unix().unwrap() + 60);
+            automatic.urls = urls;
+            assert!(matches!(
+                apply_turn_grant(TransportConfig::default(), Some(automatic)),
+                Err(Error::Configuration)
+            ));
+        }
+    }
+
+    #[cfg(not(feature = "native-libnice"))]
+    #[test]
+    fn tcp_tls_only_grant_and_explicit_mixed_configuration_remain_refused() {
+        let mut automatic = grant(unix().unwrap() + 60);
+        automatic.urls = vec![
+            "stun:localhost:3478".into(),
+            "turns:localhost:5349?transport=tcp".into(),
+        ];
+        assert!(matches!(
+            apply_turn_grant(TransportConfig::default(), Some(automatic)),
+            Err(Error::Configuration)
+        ));
+        let explicit = TransportConfig {
+            ice_servers: vec![veyra_connectivity::IceServer {
+                urls: vec![
+                    "turn:localhost:3478?transport=udp".into(),
+                    "turns:localhost:5349?transport=tcp".into(),
+                ],
+                username: "selected".into(),
+                credential: "synthetic".into(),
+            }],
+            ..Default::default()
+        };
+        assert!(matches!(
+            apply_turn_grant(explicit, Some(grant(unix().unwrap() + 60))),
+            Err(Error::Configuration)
+        ));
     }
 }

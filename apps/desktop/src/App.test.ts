@@ -1,7 +1,7 @@
 import { createApp, nextTick, type App as VueApp } from 'vue'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { PendingMessage, SessionStatus } from './lib/ipc'
+import type { Invite, PendingMessage, SessionStatus } from './lib/ipc'
 const native = vi.hoisted(() => ({
   isDesktop: () => true,
   status: vi.fn(), startSession: vi.fn(), endSession: vi.fn(), listPending: vi.fn(), joinInvite: vi.fn(), createInvite: vi.fn(),
@@ -11,8 +11,8 @@ import App from './App.vue'
 
 const inactive: SessionStatus = {
   phase: 'inactive', runtimeId: null, fingerprint: null,
-  infrastructureConfigured: false, reason: 'Infraestrutura não configurada.',
-  connectionSetup: { configured: false, source: 'unconfigured', reason: 'Esta versão ainda não inclui serviço de conexão. A configuração cabe à distribuição do aplicativo; você pode receber um convite para conectar automaticamente.' },
+  infrastructureConfigured: false, reason: 'Conexão direta sem servidor.',
+  connectionSetup: { configured: true, source: 'direct', reason: 'Conexão direta sem servidor. Redes com NAT restritivo podem impedir a conexão.' },
   peers: [], pendingCount: 0, memoryProtection: 'not-checked',
 }
 let app: VueApp | undefined
@@ -95,7 +95,7 @@ it('mantém a substituição manual opcional na configuração avançada', async
   const input = container.querySelector<HTMLInputElement>('#signaling-endpoint')!
   expect(advanced.open).toBe(false)
   expect(advanced.contains(input)).toBe(true)
-  expect(input.placeholder).toBe('Usar configuração do aplicativo')
+  expect(input.placeholder).toBe('Conexão direta sem servidor')
   expect(input.maxLength).toBe(512)
   advanced.open = true
   input.value = 'wss://synthetic.invalid/v1/rendezvous'
@@ -106,16 +106,78 @@ it('mantém a substituição manual opcional na configuração avançada', async
   expect(native.startSession).toHaveBeenCalledWith(false, 'wss://synthetic.invalid/v1/rendezvous')
 })
 
-it('explica a ausência de serviço sem transferir sua implantação ao usuário', async () => {
+it('explica o pareamento sem servidor e os limites de alcance dos endereços', async () => {
   await mount()
-  expect(container.textContent).toContain(inactive.connectionSetup.reason)
+  expect(container.textContent).toContain('Conecte diretamente, sem servidor')
   expect(container.textContent).not.toContain('informe o endpoint')
   expect(container.textContent).not.toContain('Configurar operador')
   button('Entrar com convite').click()
   await settle()
+  expect(container.textContent).toContain('Conectar sem servidor')
+  expect(container.textContent).toContain('NAT restritivo')
+  expect(container.textContent).toContain('devolve a resposta gerada')
   expect(button('Criar convite').disabled).toBe(true)
   expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.disabled).toBe(false)
   expect(native.startSession).not.toHaveBeenCalled()
+})
+
+it('mantém a resposta para devolver na aba de convites, sem simular conexão', async () => {
+  const response: Invite = { token: 'RESPOSTA-SINTETICA', expiresInMs: 60000 }
+  native.joinInvite.mockResolvedValue(response)
+  await mount()
+  button('Entrar com convite').click()
+  await settle()
+  const input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  expect(input.maxLength).toBe(16000)
+  input.value = 'CONVITE-SINTETICO'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  native.status.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-DIRETO', infrastructureConfigured: true, memoryProtection: 'protected' })
+  button('Iniciar pareamento').click()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Convites')
+  expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Resposta temporária para compartilhar"]')?.value).toBe('RESPOSTA-SINTETICA')
+  expect(container.textContent).toContain('Devolva esta resposta')
+  expect(container.textContent).not.toContain('Pareamento iniciado.')
+  button('Contatos da sessão').click()
+  await settle()
+  expect(container.textContent).toContain('Nenhum contato nesta sessão')
+  button('Convites').click()
+  await settle()
+  expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Resposta temporária para compartilhar"]')?.value).toBe('RESPOSTA-SINTETICA')
+  native.status.mockResolvedValue(inactive)
+  button('Sair e descartar sessão').click()
+  await settle()
+  expect(container.querySelector('[aria-label="Resposta temporária para compartilhar"]')).toBeNull()
+})
+
+it('não renova a resposta ao trocar de aba e permite concluir colando uma resposta', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] })
+  native.joinInvite.mockResolvedValueOnce({ token: 'RESPOSTA-CURTA', expiresInMs: 5000 }).mockResolvedValueOnce(null)
+  await mount()
+  button('Entrar com convite').click()
+  await settle()
+  let input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'OFERTA'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  native.status.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-DIRETO', infrastructureConfigured: true, memoryProtection: 'protected' })
+  button('Iniciar pareamento').click()
+  await settle()
+  button('Configurações').click()
+  await settle()
+  await vi.advanceTimersByTimeAsync(6000)
+  button('Convites').click()
+  await settle()
+  expect(container.querySelector('[aria-label="Resposta temporária para compartilhar"]')).toBeNull()
+  input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'RESPOSTA-RECEBIDA'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  button('Iniciar pareamento').click()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(container.textContent).toContain('Aguarde a conexão e verifique a identidade')
 })
 
 it('recebe convite sem sessão e aguarda o estado nativo antes de abrir contatos', async () => {

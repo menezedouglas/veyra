@@ -16,7 +16,7 @@ struct Session {
     daemon: Option<DaemonClient>,
     status: SessionStatus,
     outgoing: std::collections::HashMap<String, (String, u64)>,
-    approved: std::collections::HashMap<String, Vec<u8>>,
+    approved: std::collections::HashMap<String, (Vec<u8>, String)>,
     network_attempted: bool,
 }
 impl Default for Session {
@@ -101,12 +101,19 @@ fn id<const N: usize>(s: &str) -> Result<[u8; N], String> {
     }
     Ok(b)
 }
-fn summary(p: &Peer, approved: &std::collections::HashMap<String, Vec<u8>>) -> PeerSummary {
+fn summary(
+    p: &Peer,
+    approved: &std::collections::HashMap<String, (Vec<u8>, String)>,
+) -> PeerSummary {
     PeerSummary {
         id: p.id.clone(),
         label: format!("Peer {}", &p.id[..p.id.len().min(8)]),
         fingerprint: p.fingerprint.clone(),
-        verified: p.verified && approved.get(&p.id) == Some(&p.binding_frame),
+        verified: p.online
+            && p.verified
+            && approved.get(&p.id).is_some_and(|(binding, code)| {
+                binding == &p.binding_frame && code == &p.verification_code
+            }),
         route: if !p.online {
             "disconnected"
         } else {
@@ -177,6 +184,15 @@ async fn connection_status(
     }
     if s.daemon.is_some() {
         if let Ok(p) = peers(&mut s).await {
+            s.approved.retain(|id, (binding, code)| {
+                p.iter().any(|peer| {
+                    &peer.id == id
+                        && peer.online
+                        && peer.verified
+                        && &peer.binding_frame == binding
+                        && &peer.verification_code == code
+                })
+            });
             s.status.peers = p.iter().map(|p| summary(p, &s.approved)).collect();
         }
         if let Ok(Reply::Events {
@@ -299,7 +315,7 @@ async fn attach_daemon(s: &mut Session, endpoint: String) -> Result<(), String> 
         Ok(daemon) => {
             s.daemon = Some(daemon);
             s.status.infrastructure_configured = true;
-            s.status.reason = s.status.connection_setup.reason.clone().or_else(|| Some("Serviço de conexão preparado. A disponibilidade e a rota serão confirmadas no pareamento.".into()));
+            s.status.reason = s.status.connection_setup.reason.clone().or_else(|| Some("Conexão preparada. A disponibilidade e a rota serão confirmadas no pareamento.".into()));
             Ok(())
         }
         Err(reason) => {
@@ -420,9 +436,12 @@ async fn join_invite(
     state: State<'_, AppState>,
     invite: String,
     label: String,
-) -> Result<(), String> {
+) -> Result<Option<Invite>, String> {
     local(&window)?;
-    if invite.len() > 4096 || label.len() > 80 || label.chars().any(char::is_control) {
+    if invite.len() > veyra_daemon::MAX_DIRECT_TOKEN
+        || label.len() > 80
+        || label.chars().any(char::is_control)
+    {
         return Err("Convite ou nome inválido.".into());
     }
     // Resolve only a structurally and cryptographically valid invitation before
@@ -441,7 +460,14 @@ async fn join_invite(
         }
     }
     match request(&mut s, Command::JoinInvite { token: invite }).await? {
-        Reply::Ok {} => Ok(()),
+        Reply::Ok {} => Ok(None),
+        Reply::Invite {
+            token,
+            expires_in_ms,
+        } => Ok(Some(Invite {
+            token,
+            expires_in_ms,
+        })),
         _ => Err("Resposta inválida ao receber o convite.".into()),
     }
 }
@@ -467,7 +493,7 @@ async fn verify_peer(
     if p.verification_code != code || !p.online {
         return Err("Código divergente.".into());
     }
-    let approved_binding = p.binding_frame.clone();
+    let approved_binding = (p.binding_frame.clone(), p.verification_code.clone());
     let v = s.vault.clone().ok_or("Sessão indisponível.")?;
     if !matches!(
         v.lock()
@@ -700,7 +726,31 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, network_start_allowed, trusted_origin};
+    use super::{Session, network_start_allowed, summary, trusted_origin};
+
+    #[test]
+    fn approval_is_bound_to_the_current_online_pairing_transcript() {
+        let mut peer = veyra_daemon::wire::Peer {
+            id: "synthetic-peer".into(),
+            binding_frame: vec![1, 2, 3],
+            fingerprint: "synthetic-fingerprint".into(),
+            verification_code: "ABCD-EF01-2345-6789".into(),
+            verified: true,
+            online: true,
+            route: veyra_connectivity::Route::Direct,
+            available_offers: 1,
+        };
+        let approvals = std::collections::HashMap::from([(
+            peer.id.clone(),
+            (peer.binding_frame.clone(), peer.verification_code.clone()),
+        )]);
+        assert!(summary(&peer, &approvals).verified);
+        peer.verification_code = "1234-5678-9ABC-DEF0".into();
+        assert!(!summary(&peer, &approvals).verified);
+        peer.verification_code = "ABCD-EF01-2345-6789".into();
+        peer.online = false;
+        assert!(!summary(&peer, &approvals).verified);
+    }
 
     #[test]
     fn a_failed_network_child_is_never_replaced_for_the_same_identity() {

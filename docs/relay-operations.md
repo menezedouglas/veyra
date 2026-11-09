@@ -1,5 +1,9 @@
 # Operação da sinalização e dos retransmissores Veyra
 
+O cliente usa [conexão direta sem servidores](direct-connection.md) por padrão.
+Este documento descreve o modo WSS/TURN opcional, que exige a infraestrutura
+de um operador. A ausência de um operador não impede criar convites diretos.
+
 Nenhum endpoint público foi provisionado. Distribuir um binário não cria
 sinalização WSS, certificados, capacidade TURN ou autorização para usar um relay
 de terceiros. O serviço deve ser provisionado e configurado por quem distribui
@@ -37,9 +41,9 @@ somente no operador. Ter um endpoint configurado não comprova disponibilidade;
 a conexão real é estabelecida durante o pareamento.
 
 No aplicativo distribuído, sem um endpoint de distribuição ou de execução,
-a interface informa que esta versão ainda não inclui um serviço de conexão.
-A identidade local pode ser iniciada e um convite válido pode fornecer a
-configuração necessária. Linux e Windows possuem o IPC de produto implementado;
+a interface usa o modo direto: a oferta e a resposta acompanham os códigos
+de pareamento, sem conexão WSS. Um convite WSS recebido antes de iniciar uma
+sessão ainda pode selecionar o operador opcional. Linux e Windows possuem o IPC de produto implementado;
 o [ensaio Windows do núcleo](../tests/integration/windows-product-report.json)
 passou em MSVC debug, sem validar instalação ou GUI.
 
@@ -48,7 +52,9 @@ passou em MSVC debug, sem validar instalação ou GUI.
 `npm.cmd run desktop:dev` no Windows, ou `pnpm desktop:dev` no Linux, prepara
 o cofre, o daemon e a sinalização. Quando `VEYRA_SIGNALING_ENDPOINT` e
 `VEYRA_DEFAULT_SIGNALING_ENDPOINT` não estão definidos, o supervisor inicia
-automaticamente `scripts/local-operator.py` com o binário de sinalização real.
+`scripts/local-operator.py` com o binário de sinalização real somente quando
+`VEYRA_DEV_LOCAL_OPERATOR=1`. Por padrão, o desenvolvimento também usa o modo
+direto sem operador.
 Uma variável explicitamente definida, mesmo vazia ou inválida, não é substituída
 silenciosamente por esse operador local.
 
@@ -64,7 +70,8 @@ explicitamente o escopo local.
 Esse modo serve para pareamento entre instâncias na mesma máquina. Ele não
 inclui Coturn, não publica domínio e não atende clientes de outros computadores.
 Para usar um serviço externo, configure o endpoint real conforme a seção
-anterior; para desenvolver offline, defina `VEYRA_DEV_LOCAL_OPERATOR=0`.
+anterior. Cada helper possui endpoint e CA próprios: dois launchers WSS
+independentes não compartilham operador nem confiança TLS automaticamente.
 O instalador não inicia esse helper de desenvolvimento nem distribui seus
 certificados. A operação pública ainda exige provisionar WSS/TURN, domínio,
 TLS válido e credenciais operacionais próprias.

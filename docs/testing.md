@@ -112,6 +112,40 @@ Esse ensaio comprova o núcleo no mesmo host e na rota direta. Não comprova GUI
 Windows, instalador instalado, TURN Windows, interoperabilidade Windows↔Linux,
 redes externas, suspensão ou auditoria de resíduos do WebView/SO.
 
+## Windows: conexão direta sem serviços externos
+
+Em 9 de novembro de 2026, o teste `direct_session_process` passou em Windows
+x64 com a toolchain Rust 1.99.1 MSVC debug: **1 passou, 0 falhou, 0 ignorado**,
+em **37,43 s**. O ensaio usou dois daemons e dois cofres reais, candidatos
+somente de loopback e listas vazias de servidores ICE e sinalização. Nenhum
+operador WSS, STUN, TURN ou certificado de laboratório foi necessário.
+
+A mesma prova passou com os workers **release** e o coordenador de teste debug
+em **36,86 s**, com `PATH` vazio nos clientes. Os sidecars preparados para o
+instalador têm os mesmos hashes dos workers testados; os hashes e limites de
+escopo estão no [relatório direto Windows](../tests/integration/windows-direct-product-report.json).
+A janela debug também confirmou identidade ativa e diagnóstico **Direto · sem
+servidor**. Isso cobre inicialização/diagnóstico, sem substituir duas UIs ou
+instalação em outra máquina.
+
+A resposta manual foi devolvida após **35 segundos**, ultrapassando o timeout
+ICE anterior de 30 segundos sem perder a negociação. Também passaram recusa de
+convite próprio/adulterado e de resposta repetida, bloqueio de envio antes da
+aprovação, comparação de códigos e aprovações explícitas, mensagens HPKE nos
+dois sentidos, confirmação para abertura e recusa da segunda abertura,
+descarte após revogação e novo pareamento da mesma identidade com código novo
+e nova aprovação. A rota observada foi `Direct`.
+
+```powershell
+$env:RUSTUP_TOOLCHAIN = '1.99.1-x86_64-pc-windows-msvc'
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" test --locked -p veyra-daemon --test direct_session_process -- --nocapture
+```
+
+Esta evidência cobre o núcleo no mesmo computador. Não valida duas interfaces
+gráficas, computadores distintos, LAN, passagem por NAT, interoperabilidade
+entre sistemas, instalação ou ausência de resíduos do SO/WebView. O fluxo de
+uso e seus limites estão em [conexão direta](direct-connection.md).
+
 ## Reprodução
 
 ```sh

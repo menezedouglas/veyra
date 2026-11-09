@@ -48,6 +48,17 @@ it('recusa destinatário não verificado antes da chamada nativa', async () => {
   expect(native.sendMessage).not.toHaveBeenCalled()
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('identidades verificadas')
 })
+it('recusa destinatário desconectado mesmo se a identidade tiver aprovação antiga', async () => {
+  peers.push({ id: 'offline', label: 'Contato desconectado', fingerprint: 'SYNTHETIC-FP-3', verified: true, route: 'disconnected' })
+  try {
+    await mount('offline')
+    await type('SINTETICO')
+    submit(); await settle()
+    expect(native.sendMessage).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('identidades verificadas')
+    expect(document.querySelector('fieldset')?.textContent).not.toContain('Contato desconectado')
+  } finally { peers.pop() }
+})
 it('aplica o limite UTF-8 antes do IPC', async () => {
   await mount()
   await type('á'.repeat(2049))

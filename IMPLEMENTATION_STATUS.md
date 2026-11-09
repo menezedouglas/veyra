@@ -9,6 +9,7 @@ Os resultados observados e comandos estão em `docs/testing.md`.
 | Monorepositório, marca, Apache-2.0 | Cargo workspace, Vue/Tauri, locks, SVG/PNG/ICO, tokens e guia | Verificação registral da marca antes de lançamento |
 | Windows e Linux | Pacote Debian instalado/testado; núcleo Windows MSVC debug executado em quatro processos reais, 12/12 checks | QA gráfico e instalação Windows, interoperabilidade entre SOs |
 | Uma aplicação bidirecional | Mesmo runtime inicia/aceita; duas UIs Linux instaladas e núcleo Windows real enviam/recebem | Interoperabilidade Windows↔Linux e desktop por relay |
+| Conexão sem servidores externos | Modo padrão com troca manual de oferta/resposta assinadas, candidatos host, sem WSS/STUN/TURN; teste Windows com dois daemons e dois cofres reais passou, incluindo atraso de 35 s, leitura única e novo pareamento | Validar GUI nas duas máquinas, LAN e endereços alcançáveis; NAT/firewall pode impedir internet sem relay |
 | Direct e relay | Dois peers reais; Coturn UDP e TCP/TLS; com UDP bloqueado no cliente, TCP/TLS passaram e UDP falhou | GUI por relay, redes/NATs externos, falha de operador e troca de rede |
 | Escolha backend comprovada antes UI completa | webrtc-rs UDP provado, TCP/TLS recusado; backend libdatachannel/libnice/TLS e pacote Linux testados | Backend nativo e instalador Windows |
 | E2EE exclusiva endpoints | Noise XX + binding Ed25519 + HPKE Base assinado | Revisão independente da composição |
@@ -28,11 +29,11 @@ Os resultados observados e comandos estão em `docs/testing.md`.
 | Viewer isolado | Resposta local, confirmação, prazo sem renovação; ocultação por perda de foco e ausência de histórico comprovadas na UI Linux | Windows, GPU e auditoria abrangente de resíduos |
 | WebView restrita | CSP, comandos próprios mínimos, origem/janela, incognito, sem plugins amplos | Auditoria dinâmica de perfis; incompatibilidade WebDriver/incognito registrada |
 | Estado sem persistência intencional | RAM apenas, sem storage/browser DB/filas duráveis, locks verificados | SO, WebView, swap, hibernação e snapshot continuam fora da garantia |
-| Endpoints e certificados reais | WSS implementado; configuração automática por distribuição/ambiente ou convite validado; operador local dev automático com TLS temporário | Nenhum serviço público configurado ou implantado |
+| Endpoints e certificados reais | Modo direto padrão dispensa operador/certificado; WSS opcional por distribuição/ambiente ou convite validado; operador local dev opt-in com TLS temporário | Nenhum serviço público opcional configurado ou implantado |
 | Credenciais TURN temporárias | Emissão REST no WSS autenticado e relay automático real sem ICE configurado nos clientes | Renovação periódica, política pública de antiabuso e múltiplos operadores |
 | Infra sem mailbox | Coturn/Compose com quotas, sem DB de mensagem e logs restritos | Verificação operacional do host/proxy/journal de produção |
 | Background e bandeja | Desabilitados; fechar encerra a sessão | Integração por usuário Windows/Linux, reopen e crash |
-| Rede alterada / ICE restart | Erro objetivo e nenhuma redução de criptografia | Reconexão/ICE restart/migração ainda pendentes |
+| Rede alterada / ICE restart | Novo convite pode substituir peer offline com novo handshake/verificação; conexões antigas não limpam geração nova; ofertas anteriores não entram no canal novo | Reconexão automática/ICE restart/migração ainda pendentes |
 | PCP/NAT-PMP/UPnP opcionais | Não implementados; não necessários ao laboratório | Não são bloqueadores de base |
 | Testes cripto/estado/propriedades | Vetores oficiais, adulteração, prazo, replay, concorrência, fan-out | Cobertura não constitui auditoria |
 | Fuzzing e auditorias | libFuzzer executado; RustSec e pnpm audit executados | Campanhas longas e revisão de dependências transitivas |

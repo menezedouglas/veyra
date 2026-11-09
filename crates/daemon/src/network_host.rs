@@ -266,10 +266,19 @@ async fn execute(
                 expires_in_ms: invite.expires_unix.saturating_sub(now) * 1000,
             })
         }
-        Command::JoinInvite { token } => {
-            r.join_invite(&token).await?;
-            Ok(Reply::Ok {})
-        }
+        Command::JoinInvite { token } => match r.exchange_invite(&token).await? {
+            Some(invite) => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|_| Error::Closed)?
+                    .as_secs();
+                Ok(Reply::Invite {
+                    token: invite.token,
+                    expires_in_ms: invite.expires_unix.saturating_sub(now) * 1000,
+                })
+            }
+            None => Ok(Reply::Ok {}),
+        },
         Command::Peers {} => Ok(Reply::Peers {
             peers: r
                 .peers()

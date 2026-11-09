@@ -16,7 +16,7 @@ export interface SessionStatus {
   infrastructureConfigured: boolean
   connectionSetup: {
     configured: boolean
-    source: 'application' | 'environment' | 'manual' | 'invitation' | 'unconfigured'
+    source: 'direct' | 'application' | 'environment' | 'manual' | 'invitation' | 'unconfigured'
     reason?: string | null
   }
   reason?: string | null
@@ -47,7 +47,7 @@ export const api = {
   startSession: (allowBackground = false, signalingEndpoint?: string) => command<SessionStatus>('start_session', { allowBackground, signalingEndpoint: signalingEndpoint || null }),
   endSession: () => command<void>('end_session'),
   createInvite: () => command<Invite>('create_invite'),
-  joinInvite: (invite: string, label: string) => command<void>('join_invite', { invite, label }),
+  joinInvite: (invite: string, label: string) => command<Invite | null>('join_invite', { invite, label }),
   verifyPeer: (peerId: string, code: string) => command<PeerSummary>('verify_peer', { peerId, code, approved: true }),
   sendMessage: (peerIds: string[], text: string) => command<Delivery[]>('send_message', { peerIds, text }),
   listPending: () => command<PendingMessage[]>('list_pending'),

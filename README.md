@@ -25,6 +25,10 @@ em Debian 12, sem Node ou Rust no PATH do cliente. Confira
 `sudo apt install ./Veyra_0.1.0_amd64.deb`. Não há endpoint público embutido;
 pareamento exige um operador WSS/TURN configurado.
 
+O código atual também oferece [pareamento direto sem servidores](docs/direct-connection.md)
+como padrão. Compile novamente para usar esse fluxo; os artefatos anteriores
+continuam com o comportamento da versão em que foram gerados.
+
 ## Desenvolvimento
 
 Requer Rust 1.99.1, Node 24.22.2 e pnpm 12.18.0, fixados no repositório.
@@ -38,16 +42,22 @@ pnpm install --frozen-lockfile
 pnpm desktop:dev
 ```
 
-`desktop:dev` prepara os binários internos e, quando não há serviço externo
-configurado, inicia automaticamente um operador WSS somente em loopback. A CA
+`desktop:dev` prepara os binários internos e usa conexão direta sem servidores
+por padrão. Troque um convite e uma resposta entre as instâncias e compare os
+códigos de verificação antes de enviar. Esse modo atende redes locais e
+endereços diretamente acessíveis; NATs e firewalls podem impedir acesso entre
+redes da internet. Não exige VPS, domínio ou serviço externo.
+
+Para ensaios opcionais com `VEYRA_DEV_LOCAL_OPERATOR=1`, o supervisor inicia
+um operador WSS somente em loopback. A CA
 temporária é confiada apenas pelos processos desta execução, preservando as
 raízes existentes; nada é instalado no repositório de certificados do sistema.
 Fechar o app encerra esse operador e remove seu material TLS temporário.
 Esse modo conecta instâncias na mesma máquina e não oferece TURN nem serviço
 público para outros computadores. Para usar um operador externo, defina
 `VEYRA_SIGNALING_ENDPOINT` ou compile com `VEYRA_DEFAULT_SIGNALING_ENDPOINT`.
-`VEYRA_DEV_LOCAL_OPERATOR=0` desativa o operador automático para desenvolvimento
-offline. O comando `pnpm dev` inicia somente o frontend.
+Sem essa opção, nenhum operador é iniciado. O comando `pnpm dev` inicia somente
+o frontend.
 
 ### Windows
 
@@ -67,8 +77,8 @@ pnpm.cmd install --frozen-lockfile
 npm.cmd run desktop:dev
 ```
 
-`desktop:dev` prepara o cofre e o daemon em debug, inicia o operador local quando
-necessário e abre a janela Tauri com Vite. `pnpm.cmd dev` inicia somente o frontend.
+`desktop:dev` prepara o cofre e o daemon em debug e abre a janela Tauri com Vite.
+O pareamento direto funciona sem operador. `pnpm.cmd dev` inicia somente o frontend.
 Para gerar o instalador Windows experimental, sem assinatura:
 
 ```powershell
@@ -96,13 +106,16 @@ cargo build --locked -p veyra-desktop -p veyra-daemon --features tauri/custom-pr
 ./target/debug/veyra
 ```
 
-O cofre e o daemon devem ficar junto ao executável desktop. A conexão usa
-automaticamente o serviço configurado na distribuição. Ao entrar com um convite
-válido sem uma sessão conectada, o aplicativo usa o operador indicado nele;
+O cofre e o daemon devem ficar junto ao executável desktop. A conexão padrão
+troca manualmente oferta e resposta entre os aplicativos, sem servidores.
+Se houver um operador opcional configurado na distribuição, a conexão usa esse
+serviço. Ao entrar com um convite WSS válido sem uma sessão conectada, o
+aplicativo usa o operador indicado nele;
 não é necessário copiar o endereço para as configurações. Credenciais TURN
 temporárias também são recebidas automaticamente pela sinalização.
 
-Esta distribuição ainda não inclui um endpoint público operacional. Publicar
+O modo direto não depende de endpoint público. O modo opcional WSS/TURN ainda
+não inclui um endpoint público operacional. Publicar
 esse serviço e configurar seu endereço uma vez é responsabilidade de quem
 distribui o aplicativo. Sem serviço, a identidade local continua disponível nas
 plataformas suportadas, e é possível entrar com um convite de um operador real.
@@ -159,6 +172,8 @@ Leia [arquitetura](docs/architecture.md), [protocolo](docs/protocol.md),
 [segurança](SECURITY.md) e [contribuição](CONTRIBUTING.md).
 O nome e sua disponibilidade jurídica/registral não foram verificados para lançamento.
 
-CI usa ações fixadas e privilégios mínimos. O workflow de pacote recusa lançamento
-enquanto houver critérios obrigatórios pendentes em `docs/release-readiness.json`.
+CI usa ações fixadas e privilégios mínimos. O workflow de release gera rascunhos
+experimentais com instaladores, checksums e relatório das pendências. O canal
+`production` continua bloqueado enquanto houver critérios obrigatórios pendentes
+em `docs/release-readiness.json`. Consulte o [procedimento de release](docs/releasing.md).
 Não há instalador Windows validado, assinatura ou auditoria anunciada.

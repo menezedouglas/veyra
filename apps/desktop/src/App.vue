@@ -12,7 +12,7 @@ import OneTimeViewer from '@/components/OneTimeViewer.vue'
 import MessageComposer from '@/components/MessageComposer.vue'
 import InvitePanel from '@/components/InvitePanel.vue'
 import VeyraDialog from '@/components/ui/dialog/VeyraDialog.vue'
-import { api, type SessionStatus, type PendingMessage } from '@/lib/ipc'
+import { api, type SessionStatus, type PendingMessage, type Invite } from '@/lib/ipc'
 import { validateSignalingEndpoint } from '@/lib/validation'
 import { useAppearance } from '@/stores/appearance'
 
@@ -28,14 +28,15 @@ const tabs = [
 const descriptions: Record<Tab, string> = {
   pending: 'Somente mensagens não consumidas. Nenhum histórico é mantido.',
   peers: 'Identidades válidas apenas nesta execução. Compare antes de enviar.',
-  invites: 'Pareamento temporário, sem cadastro nem diretório público.',
+  invites: 'Troque o convite e a resposta. Conexão direta, sem servidor e sem cadastro.',
   connections: 'Estado informado pelo núcleo e rota selecionada pelo transporte.',
-  settings: 'Preferências em RAM e conectividade automática desta sessão.',
+  settings: 'Preferências em RAM e conexão direta desta sessão.',
 }
 const appearance = useAppearance()
 const desktop = api.isDesktop()
 const tab = ref<Tab>('pending')
 const status = shallowRef<SessionStatus | null>(null)
+const pairingResponse = shallowRef<(Invite & { expiresAt: number }) | null>(null)
 const pending = shallowRef<PendingView[]>([])
 const busy = ref(false)
 const joining = ref(false)
@@ -55,7 +56,7 @@ const connectionSetup = computed(() => status.value?.connectionSetup)
 const peers = computed(() => status.value?.peers ?? [])
 const verificationPeer = computed(() => peers.value.find(peer => peer.id === verificationPeerId.value))
 const revokePeer = computed(() => peers.value.find(peer => peer.id === revokePeerId.value))
-const canCompose = computed(() => networkReady.value && peers.value.some(peer => peer.verified))
+const canCompose = computed(() => networkReady.value && peers.value.some(peer => peer.verified && (peer.route === 'direct' || peer.route === 'relay')))
 const endpointError = computed(() => validateSignalingEndpoint(endpoint.value))
 const title = computed(() => tabs.find(item => item.id === tab.value)?.label)
 let refreshing = false
@@ -66,6 +67,7 @@ let monoCheckpoint = performance.now()
 let wallCheckpoint = Date.now()
 
 function clearSensitiveUI() {
+  pairingResponse.value = null
   composerOpen.value = false
   opening.value = null
   verificationPeerId.value = null
@@ -131,18 +133,20 @@ async function join(invite: string) {
   const expectedGeneration = ++generation
   busy.value = true; joining.value = true; error.value = ''; notice.value = ''
   let accepted = false
+  const startedAt = performance.now()
   try {
     const operation = api.joinInvite(invite, '')
     invite = ''
-    await operation
+    const response = await operation
     if (!alive || expectedGeneration !== generation) return
     accepted = true
     const value = await api.status()
     if (!alive || expectedGeneration !== generation) return
     applyStatus(value)
     if (value.phase === 'active' && value.runtimeId) {
-      tab.value = 'peers'
-      notice.value = 'Pareamento iniciado. Aguarde a conexão e verifique a identidade.'
+      pairingResponse.value = response ? { ...response, expiresAt: startedAt + Math.max(0, Math.min(response.expiresInMs, 300000)) } : null
+      tab.value = response ? 'invites' : 'peers'
+      notice.value = response ? 'Resposta gerada. Devolva o código à pessoa que criou o convite para concluir a conexão.' : 'Pareamento iniciado. Aguarde a conexão e verifique a identidade.'
     }
     else error.value = value.phase === 'blocked' && value.reason ? value.reason : 'O pareamento foi solicitado, mas o núcleo ainda não confirmou a sessão.'
   } catch {
@@ -198,7 +202,9 @@ async function revoke() {
 }
 function tick() {
   const mono = performance.now(), wall = Date.now()
+  if (pairingResponse.value && pairingResponse.value.expiresAt <= mono) pairingResponse.value = null
   if (Math.abs((wall - wallCheckpoint) - (mono - monoCheckpoint)) > 1500) {
+    pairingResponse.value = null
     opening.value = null
     for (const message of pending.value) { locallyClaimed.add(message.id); void api.discardMessage(message.id).catch(() => {}) }
     pending.value = []
@@ -230,7 +236,7 @@ onUnmounted(() => { alive = false; generation++; if (poll) clearInterval(poll); 
         <p v-if="notice" role="status" class="mb-5 rounded-lg border border-border bg-card p-4 text-sm leading-relaxed text-muted-foreground">{{ notice }}</p>
         <div v-if="sessionExists && status?.reason" class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4"><p class="flex max-w-3xl gap-2 text-xs leading-relaxed text-warning"><CircleAlert class="mt-0.5 size-4 shrink-0" aria-hidden="true" />{{ status.reason }}</p><Button v-if="!status.infrastructureConfigured" variant="ghost" size="sm" @click="tab = 'invites'">Entrar com convite<ArrowRight class="size-3.5" aria-hidden="true" /></Button></div>
 
-        <section v-if="!sessionExists && tab !== 'settings' && tab !== 'connections' && tab !== 'invites'" class="rounded-xl border border-border bg-card p-7 sm:p-10"><div class="mb-6 flex size-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/5"><Fingerprint class="size-7 text-primary" :stroke-width="1.5" aria-hidden="true" /></div><h2 class="text-xl font-semibold">Uma nova sessão, uma nova identidade.</h2><p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Mensagens privadas, diretas e efêmeras. A identidade é gerada no núcleo Rust e permanece em RAM. Não há conta, cadastro ou recuperação de sessão.</p><div class="mt-6 flex flex-wrap gap-3"><Button :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button><Button variant="secondary" :disabled="!joinEnabled" @click="tab = 'invites'">Entrar com convite</Button></div><p class="mt-5 max-w-xl text-xs leading-relaxed text-muted-foreground">A conexão usa automaticamente a configuração deste aplicativo ou a recebida em um convite. Fechar esta execução descarta a sessão.</p><p v-if="connectionSetup && !connectionSetup.configured && connectionSetup.reason" class="mt-3 max-w-xl text-xs leading-relaxed text-warning">{{ connectionSetup.reason }}</p></section>
+        <section v-if="!sessionExists && tab !== 'settings' && tab !== 'connections' && tab !== 'invites'" class="rounded-xl border border-border bg-card p-7 sm:p-10"><div class="mb-6 flex size-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/5"><Fingerprint class="size-7 text-primary" :stroke-width="1.5" aria-hidden="true" /></div><h2 class="text-xl font-semibold">Uma nova sessão, uma nova identidade.</h2><p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Mensagens privadas, diretas e efêmeras. A identidade é gerada no núcleo Rust e permanece em RAM. Não há conta, cadastro ou recuperação de sessão.</p><div class="mt-6 flex flex-wrap gap-3"><Button :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button><Button variant="secondary" :disabled="!joinEnabled" @click="tab = 'invites'">Entrar com convite</Button></div><p class="mt-5 max-w-xl text-xs leading-relaxed text-muted-foreground">Conecte diretamente, sem servidor: crie um convite, receba uma resposta e cole-a para concluir. Fechar esta execução descarta a sessão.</p><p v-if="connectionSetup && !connectionSetup.configured && connectionSetup.reason" class="mt-3 max-w-xl text-xs leading-relaxed text-warning">{{ connectionSetup.reason }}</p></section>
 
         <template v-else-if="tab === 'pending'">
           <div v-if="pending.length" class="space-y-4"><EphemeralMessageCard v-for="message in pending" :key="message.id" :message="message" :peer="peers.find(peer => peer.id === message.peerId)" :busy="discarding === message.id" @open="openMessage(message)" @discard="discard(message)" @expired="pending = pending.filter(item => item.id !== message.id)" /></div>
@@ -239,21 +245,21 @@ onUnmounted(() => { alive = false; generation++; if (poll) clearInterval(poll); 
         </template>
 
         <template v-else-if="tab === 'peers'"><div v-if="peers.length" class="grid gap-4 xl:grid-cols-2"><PeerIdentityCard v-for="peer in peers" :key="peer.id" :peer="peer" :busy="busy" @verify="verificationPeerId = $event.id" @revoke="revokePeerId = $event.id" /></div><section v-else class="rounded-xl border border-border bg-card px-6 py-12 text-center"><UsersRound class="mx-auto mb-5 size-9 text-muted-foreground" :stroke-width="1.5" aria-hidden="true" /><h2 class="text-lg font-semibold">Nenhum contato nesta sessão</h2><p class="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Crie ou receba um convite. Após a conexão, compare o código antes de aprovar a identidade.</p><Button class="mt-6" variant="secondary" @click="tab = 'invites'">Abrir convites<ArrowRight class="size-4" aria-hidden="true" /></Button></section><p class="mt-5 text-xs leading-relaxed text-muted-foreground">A identidade muda ao reiniciar o núcleo. Nomes são rótulos locais e não comprovam quem está do outro lado.</p></template>
-        <InvitePanel v-else-if="tab === 'invites'" :enabled="networkReady && !busy" :join-enabled="joinEnabled" :joining="joining" @join="join" />
+        <InvitePanel v-else-if="tab === 'invites'" :enabled="networkReady && !busy" :join-enabled="joinEnabled" :joining="joining" :response="pairingResponse" @join="join" @response-expired="pairingResponse = null" />
         <div v-else-if="tab === 'connections'" class="grid items-start gap-6 xl:grid-cols-2"><ConnectivityDiagnostics :status="status" :desktop="desktop" /><PrivacyStatus :memory-protection="status?.memoryProtection ?? 'not-checked'" /><div class="xl:col-span-2"><Button variant="secondary" :disabled="!desktop || busy" @click="refresh"><RefreshCw class="size-4" aria-hidden="true" />Atualizar diagnóstico</Button></div></div>
 
         <div v-else-if="tab === 'settings'" class="space-y-6">
           <section class="rounded-lg border border-border bg-card p-6">
-            <h2 class="flex items-center gap-2 text-base font-semibold"><Radio class="size-4 text-primary" aria-hidden="true" />Conectividade automática</h2>
-            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">O Veyra escolhe a conexão configurada para este aplicativo e obtém as credenciais temporárias necessárias. Ao receber um convite, a configuração de conexão vem com ele.</p>
-            <p v-if="connectionSetup" class="mt-4 max-w-2xl text-sm leading-relaxed" :class="connectionSetup.configured ? 'text-muted-foreground' : 'text-warning'">{{ connectionSetup.configured ? 'Configuração de conexão recebida. A disponibilidade será confirmada durante o pareamento.' : connectionSetup.reason }}</p>
+            <h2 class="flex items-center gap-2 text-base font-semibold"><Radio class="size-4 text-primary" aria-hidden="true" />Conexão direta</h2>
+            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">O modo padrão conecta os participantes sem servidor de sinalização, STUN ou TURN. Troque manualmente o convite e a resposta. Funciona em redes com endereços diretamente acessíveis; NAT restritivo e firewalls podem impedir a conexão.</p>
+            <p v-if="connectionSetup" class="mt-4 max-w-2xl text-sm leading-relaxed" :class="connectionSetup.configured ? 'text-muted-foreground' : 'text-warning'">{{ connectionSetup.source === 'direct' ? 'Modo direto pronto para o pareamento, sem serviço externo.' : (connectionSetup.configured ? 'Operador opcional configurado para esta sessão.' : connectionSetup.reason) }}</p>
             <details class="mt-5 border-t border-border pt-4">
               <summary class="cursor-pointer text-sm font-medium">Configuração avançada</summary>
-              <p class="mt-3 max-w-2xl text-xs leading-relaxed text-muted-foreground">Use outro serviço somente se desejar substituir a configuração automática desta sessão.</p>
+              <p class="mt-3 max-w-2xl text-xs leading-relaxed text-muted-foreground">O modo direto dispensa esta configuração. Um operador WSS opcional mantém compatibilidade com convites de versões anteriores.</p>
               <label for="signaling-endpoint" class="mb-2 mt-4 block text-sm font-medium">Endpoint WSS <span class="text-xs font-normal text-muted-foreground">(avançado)</span></label>
-              <input id="signaling-endpoint" v-model="endpoint" type="url" class="w-full max-w-2xl font-mono text-xs" placeholder="Usar configuração do aplicativo" autocomplete="off" autocapitalize="off" :spellcheck="false" :disabled="sessionExists || busy" maxlength="512" aria-describedby="endpoint-help" />
-              <p id="endpoint-help" class="mt-2 text-xs leading-relaxed" :class="endpointError ? 'text-destructive' : 'text-muted-foreground'">{{ endpointError || 'Deixe vazio para usar a configuração automática. Para substituir: wss://, certificado válido e caminho /v1/rendezvous, sem credenciais ou tokens na URL.' }}</p>
-              <p class="mt-3 text-xs leading-relaxed text-muted-foreground">Os segredos do serviço permanecem na infraestrutura e nunca são informados no aplicativo.</p>
+              <input id="signaling-endpoint" v-model="endpoint" type="url" class="w-full max-w-2xl font-mono text-xs" placeholder="Conexão direta sem servidor" autocomplete="off" autocapitalize="off" :spellcheck="false" :disabled="sessionExists || busy" maxlength="512" aria-describedby="endpoint-help" />
+              <p id="endpoint-help" class="mt-2 text-xs leading-relaxed" :class="endpointError ? 'text-destructive' : 'text-muted-foreground'">{{ endpointError || 'Deixe vazio para usar o modo direto. Para um operador opcional: wss://, certificado válido e caminho /v1/rendezvous, sem credenciais ou tokens na URL.' }}</p>
+              <p class="mt-3 text-xs leading-relaxed text-muted-foreground">Nenhum endereço de servidor é necessário para a conexão direta.</p>
               <p v-if="sessionExists" class="mt-4 text-xs text-warning">Para substituir esta conexão, encerre a sessão e inicie outra identidade.</p>
             </details>
             <Button v-if="!sessionExists" class="mt-5" :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button>
@@ -265,7 +271,7 @@ onUnmounted(() => { alive = false; generation++; if (poll) clearInterval(poll); 
         <p class="mt-8 border-t border-border pt-5 text-[11px] leading-relaxed text-muted-foreground">Privado por padrão. Efêmero por design. Protocolo experimental, sem revisão independente. Veyra não oferece anonimato, conexão universal ou apagamento absoluto.</p>
       </main>
     </div>
-    <FingerprintVerification v-if="verificationPeer" :key="verificationPeer.id" :peer="verificationPeer" @close="verificationPeerId = null" @verified="refresh" />
+    <FingerprintVerification v-if="verificationPeer" :key="`${verificationPeer.id}:${verificationPeer.verificationCode}`" :peer="verificationPeer" @close="verificationPeerId = null" @verified="refresh" />
     <MessageComposer v-if="composerOpen && sessionExists" :peers="peers" :delivery-updates="status?.deliveries ?? []" @close="composerOpen = false" @sent="refresh" />
     <OneTimeViewer v-if="opening && sessionExists" :key="opening.id" :message-id="opening.id" :expires-at="opening.expiresAt" @close="opening = null" @consumed="opening && consumeLocal(opening)" />
     <VeyraDialog v-if="revokePeer" :open="true" title="Revogar contato?" description="Novas operações serão impedidas e as pendências locais desse contato serão descartadas. Cópias remotas não podem ser apagadas por esta ação." @close="revokePeerId = null"><p class="font-semibold">{{ revokePeer.label || 'Contato da sessão' }}</p><div class="mt-6 flex justify-end gap-3"><Button variant="secondary" @click="revokePeerId = null">Cancelar</Button><Button variant="destructive" :disabled="busy" @click="revoke">Revogar e descartar</Button></div></VeyraDialog>
