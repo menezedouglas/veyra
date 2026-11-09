@@ -105,7 +105,7 @@ pub enum RuntimeEvent {
     },
     ConnectionFailed,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InviteToken {
     version: u8,
@@ -114,6 +114,55 @@ struct InviteToken {
     expires_unix: u64,
     binding: String,
     fingerprint: String,
+}
+
+struct ValidatedInvite {
+    endpoint: String,
+    room: [u8; 32],
+    expires_unix: u64,
+    remote: IdentityBinding,
+}
+
+fn parse_invitation(token: &str, now: u64) -> Result<ValidatedInvite> {
+    if token.len() > 4096 {
+        return Err(Error::Invitation);
+    }
+    let token = token.strip_prefix("veyra1:").ok_or(Error::Invitation)?;
+    let bytes = hex::decode(token).map_err(|_| Error::Invitation)?;
+    let token: InviteToken = serde_json::from_slice(&bytes).map_err(|_| Error::Invitation)?;
+    if token.version != 1
+        || !signaling_endpoint_valid(&token.endpoint)
+        || token.expires_unix <= now
+        || token.expires_unix.saturating_sub(now) > INVITE_SECONDS
+    {
+        return Err(Error::Invitation);
+    }
+    let room: [u8; 32] = hex::decode(&token.room)
+        .map_err(|_| Error::Invitation)?
+        .try_into()
+        .map_err(|_| Error::Invitation)?;
+    let Frame::IdentityBinding(remote) =
+        Frame::decode(&hex::decode(&token.binding).map_err(|_| Error::Invitation)?)
+            .map_err(|_| Error::Invitation)?
+    else {
+        return Err(Error::Invitation);
+    };
+    if fingerprint(&remote.identity) != token.fingerprint {
+        return Err(Error::Authentication);
+    }
+    verify_binding(&remote, &remote.noise_public).map_err(|_| Error::Authentication)?;
+    Ok(ValidatedInvite {
+        endpoint: token.endpoint,
+        room,
+        expires_unix: token.expires_unix,
+        remote,
+    })
+}
+
+/// Validate a received invitation before using its public operator endpoint.
+/// The signed identity binding does not replace human fingerprint verification.
+pub fn invitation_endpoint(token: &str) -> Result<String> {
+    Ok(parse_invitation(token, unix()?)?.endpoint)
 }
 
 #[derive(Deserialize)]
@@ -207,7 +256,11 @@ fn unix() -> Result<u64> {
         .map(|x| x.as_secs())
         .map_err(|_| Error::Invitation)
 }
-fn endpoint_valid(endpoint: &str) -> bool {
+/// Accept only the bounded native WSS rendezvous URL format.
+pub fn signaling_endpoint_valid(endpoint: &str) -> bool {
+    if endpoint.len() > 512 {
+        return false;
+    }
     let Ok(u) = url::Url::parse(endpoint) else {
         return false;
     };
@@ -218,7 +271,6 @@ fn endpoint_valid(endpoint: &str) -> bool {
         && u.query().is_none()
         && u.fragment().is_none()
         && u.path() == "/v1/rendezvous"
-        && endpoint.len() <= 512
 }
 impl Runtime {
     pub async fn new(config: RuntimeConfig, port: Arc<dyn VaultNetworkPort>) -> Result<Arc<Self>> {
@@ -227,7 +279,7 @@ impl Runtime {
             gathering_config.relay_only = false;
         }
         let valid_transport = veyra_transport::validate_config(&gathering_config).is_ok();
-        if !endpoint_valid(&config.endpoint) || !valid_transport {
+        if !signaling_endpoint_valid(&config.endpoint) || !valid_transport {
             return Err(Error::Configuration);
         }
         if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -355,40 +407,20 @@ impl Runtime {
     }
     pub async fn join_invite(self: &Arc<Self>, token: &str) -> Result<()> {
         self.active()?;
-        if token.len() > 4096 {
+        let ValidatedInvite {
+            endpoint,
+            room,
+            expires_unix,
+            remote,
+        } = parse_invitation(token, unix()?)?;
+        if endpoint != self.config.endpoint {
             return Err(Error::Invitation);
         }
-        let token = token.strip_prefix("veyra1:").ok_or(Error::Invitation)?;
-        let bytes = hex::decode(token).map_err(|_| Error::Invitation)?;
-        let token: InviteToken = serde_json::from_slice(&bytes).map_err(|_| Error::Invitation)?;
-        if token.version != 1
-            || token.endpoint != self.config.endpoint
-            || !endpoint_valid(&token.endpoint)
-            || token.expires_unix <= unix()?
-            || token.expires_unix.saturating_sub(unix()?) > INVITE_SECONDS
-        {
-            return Err(Error::Invitation);
-        }
-        let room: [u8; 32] = hex::decode(&token.room)
-            .map_err(|_| Error::Invitation)?
-            .try_into()
-            .map_err(|_| Error::Invitation)?;
-        let Frame::IdentityBinding(remote) =
-            Frame::decode(&hex::decode(&token.binding).map_err(|_| Error::Invitation)?)
-                .map_err(|_| Error::Invitation)?
-        else {
-            return Err(Error::Invitation);
-        };
-        if fingerprint(&remote.identity) != token.fingerprint
-            || remote.identity == self.binding.identity
-        {
+        if remote.identity == self.binding.identity {
             return Err(Error::Authentication);
         }
-        verify_binding(&remote, &remote.noise_public).map_err(|_| Error::Authentication)?;
         self.reserve().await?;
-        let result = self
-            .attach(room, token.expires_unix, 1, remote.identity)
-            .await;
+        let result = self.attach(room, expires_unix, 1, remote.identity).await;
         let (ws, transport) = match result {
             Ok(ws) => ws,
             Err(e) => {
@@ -401,7 +433,7 @@ impl Runtime {
         tokio::spawn(async move {
             let result = tokio::select! {_ = this.cancelled()=>Ok(Err(Error::Closed)),result=tokio::time::timeout(
                 Duration::from_secs(INVITE_SECONDS),
-                this.establish(ws, room, token.expires_unix, false, remote,transport),
+                this.establish(ws, room, expires_unix, false, remote,transport),
             )=>result};
             {
                 let mut s = this.state.lock().await;
@@ -965,9 +997,116 @@ fn validate_signal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn invitation_fixture(expires_unix: u64) -> InviteToken {
+        let identity = veyra_identity::RuntimeIdentity::generate().unwrap();
+        InviteToken {
+            version: 1,
+            endpoint: "wss://operator.invalid/v1/rendezvous".into(),
+            room: hex::encode([7; 32]),
+            expires_unix,
+            binding: hex::encode(Frame::IdentityBinding(identity.binding()).encode()),
+            fingerprint: fingerprint(&identity.public()),
+        }
+    }
+
+    fn encode_invitation(token: &InviteToken) -> String {
+        format!("veyra1:{}", hex::encode(serde_json::to_vec(token).unwrap()))
+    }
+
+    #[test]
+    fn invitation_selects_its_operator_without_starting_a_runtime() {
+        let token = invitation_fixture(unix().unwrap() + 60);
+        assert_eq!(
+            invitation_endpoint(&encode_invitation(&token)).unwrap(),
+            token.endpoint
+        );
+    }
+
+    #[test]
+    fn invitation_lifetime_and_metadata_are_checked_before_operator_selection() {
+        let now = 1_000_000;
+        let original = invitation_fixture(now + INVITE_SECONDS);
+        assert!(parse_invitation(&encode_invitation(&original), now).is_ok());
+        for expires_unix in [0, now, now + INVITE_SECONDS + 1, u64::MAX] {
+            let mut token = original.clone();
+            token.expires_unix = expires_unix;
+            assert!(parse_invitation(&encode_invitation(&token), now).is_err());
+        }
+        let mut token = original.clone();
+        token.version = 2;
+        assert!(parse_invitation(&encode_invitation(&token), now).is_err());
+        for room in ["invalid".into(), hex::encode([7; 31])] {
+            let mut token = original.clone();
+            token.room = room;
+            assert!(parse_invitation(&encode_invitation(&token), now).is_err());
+        }
+        let mut token = original;
+        token.binding = hex::encode(Frame::Hello([7; 16]).encode());
+        assert!(parse_invitation(&encode_invitation(&token), now).is_err());
+    }
+
+    #[test]
+    fn invitation_signature_and_fingerprint_are_checked_before_operator_selection() {
+        let original = invitation_fixture(unix().unwrap() + 60);
+        let mut token = original.clone();
+        token.fingerprint = "untrusted-fingerprint".into();
+        assert!(matches!(
+            invitation_endpoint(&encode_invitation(&token)),
+            Err(Error::Authentication)
+        ));
+        let Frame::IdentityBinding(mut binding) =
+            Frame::decode(&hex::decode(&original.binding).unwrap()).unwrap()
+        else {
+            panic!("fixture identity binding");
+        };
+        binding.signature[0] ^= 1;
+        let mut token = original;
+        token.binding = hex::encode(Frame::IdentityBinding(binding).encode());
+        assert!(matches!(
+            invitation_endpoint(&encode_invitation(&token)),
+            Err(Error::Authentication)
+        ));
+    }
+
+    #[test]
+    fn invitation_refuses_unsafe_endpoints_and_malformed_tokens_without_network() {
+        let original = invitation_fixture(unix().unwrap() + 60);
+        for endpoint in [
+            "ws://operator.invalid/v1/rendezvous".into(),
+            "wss://operator.invalid/other".into(),
+            "wss://u:p@operator.invalid/v1/rendezvous".into(),
+            "wss://operator.invalid/v1/rendezvous?token=secret".into(),
+            "wss://operator.invalid/v1/rendezvous#fragment".into(),
+            format!("wss://{}.invalid/v1/rendezvous", "a".repeat(512)),
+        ] {
+            let mut token = original.clone();
+            token.endpoint = endpoint;
+            assert!(invitation_endpoint(&encode_invitation(&token)).is_err());
+        }
+        for token in [
+            String::new(),
+            "veyra1:zz".into(),
+            "veyra1:0".into(),
+            encode_invitation(&original).replacen("veyra1:", "veyra2:", 1),
+            format!("veyra1:{}", "0".repeat(4096)),
+        ] {
+            assert!(invitation_endpoint(&token).is_err());
+        }
+        let mut unknown_field = serde_json::to_value(original).unwrap();
+        unknown_field["unexpected"] = serde_json::json!(true);
+        let token = format!(
+            "veyra1:{}",
+            hex::encode(serde_json::to_vec(&unknown_field).unwrap())
+        );
+        assert!(invitation_endpoint(&token).is_err());
+    }
+
     #[test]
     fn endpoint_requires_wss_and_has_no_url_credentials_or_tokens() {
-        assert!(endpoint_valid("wss://localhost:8443/v1/rendezvous"));
+        assert!(signaling_endpoint_valid(
+            "wss://localhost:8443/v1/rendezvous"
+        ));
         for e in [
             "ws://localhost/v1/rendezvous",
             "wss://localhost/v1/rendezvous?token=secret",
@@ -975,7 +1114,7 @@ mod tests {
             "wss://localhost/v1/rendezvous#x",
             "https://localhost/v1/rendezvous",
         ] {
-            assert!(!endpoint_valid(e));
+            assert!(!signaling_endpoint_valid(e));
         }
     }
     #[test]

@@ -2,8 +2,72 @@
 
 Nenhum endpoint público foi provisionado. Distribuir um binário não cria
 sinalização WSS, certificados, capacidade TURN ou autorização para usar um relay
-de terceiros. O cliente deve informar “infraestrutura não configurada” até
-receber endpoints reais de um operador escolhido.
+de terceiros. O serviço deve ser provisionado e configurado por quem distribui
+o aplicativo; a experiência normal do cliente não exige instalar infraestrutura
+nem digitar endereços de servidores.
+
+## Configuração automática do cliente
+
+Depois de publicar a sinalização WSS e o Coturn descritos abaixo, configure
+o endpoint público uma vez no ambiente de compilação da distribuição:
+
+```powershell
+# Substitua pelo domínio real provisionado e com certificado válido.
+$env:VEYRA_DEFAULT_SIGNALING_ENDPOINT = 'wss://seu-dominio/v1/rendezvous'
+npm.cmd run desktop:build:windows
+```
+
+O endereço público fica embutido no executável. Não inclua senhas, tokens,
+segredo TURN ou chaves TLS nessa variável. Para desenvolvimento ou uma
+instalação administrada, `VEYRA_SIGNALING_ENDPOINT` configura o endereço na
+execução do aplicativo. A prioridade é: seleção explícita nas opções avançadas,
+variável de execução e endereço da distribuição. Uma configuração presente
+inválida é recusada; não se tenta outro operador silenciosamente.
+
+O botão **Iniciar sessão** usa essa configuração automaticamente. Para receber
+um convite sem uma sessão conectada, o cliente valida formato, prazo, endereço,
+binding assinado e fingerprint antes de iniciar os componentes locais e usar
+o endpoint do convite. Uma sessão já conectada mantém seu operador; um convite
+de outro operador é recusado nessa sessão. O endereço no convite não comprova
+a identidade humana nem substitui a verificação do código pelos participantes.
+
+TURN não requer configuração manual no desktop: após o attach, o WSS fornece
+URLs e credenciais temporárias. O segredo usado para emiti-las permanece
+somente no operador. Ter um endpoint configurado não comprova disponibilidade;
+a conexão real é estabelecida durante o pareamento.
+
+No aplicativo distribuído, sem um endpoint de distribuição ou de execução,
+a interface informa que esta versão ainda não inclui um serviço de conexão.
+A identidade local pode ser iniciada e um convite válido pode fornecer a
+configuração necessária. Linux e Windows possuem o IPC de produto implementado;
+o [ensaio Windows do núcleo](../tests/integration/windows-product-report.json)
+passou em MSVC debug, sem validar instalação ou GUI.
+
+## Operador local automático no desenvolvimento
+
+`npm.cmd run desktop:dev` no Windows, ou `pnpm desktop:dev` no Linux, prepara
+o cofre, o daemon e a sinalização. Quando `VEYRA_SIGNALING_ENDPOINT` e
+`VEYRA_DEFAULT_SIGNALING_ENDPOINT` não estão definidos, o supervisor inicia
+automaticamente `scripts/local-operator.py` com o binário de sinalização real.
+Uma variável explicitamente definida, mesmo vazia ou inválida, não é substituída
+silenciosamente por esse operador local.
+
+O listener usa somente `127.0.0.1` e uma porta disponível. O helper cria uma CA
+e um certificado de um dia em diretório temporário exclusivo, verifica o
+handshake TLS e devolve endpoint e caminho do bundle público. O supervisor
+fornece `VEYRA_SIGNALING_ENDPOINT` e `SSL_CERT_FILE` apenas aos subprocessos do
+app; o bundle inclui as raízes já confiadas além da CA temporária. Não há
+alteração do repositório de certificados do SO. Fechar o app envia `stop`/EOF,
+encerra o serviço e remove o material TLS dessa execução. O console informa
+explicitamente o escopo local.
+
+Esse modo serve para pareamento entre instâncias na mesma máquina. Ele não
+inclui Coturn, não publica domínio e não atende clientes de outros computadores.
+Para usar um serviço externo, configure o endpoint real conforme a seção
+anterior; para desenvolver offline, defina `VEYRA_DEV_LOCAL_OPERATOR=0`.
+O instalador não inicia esse helper de desenvolvimento nem distribui seus
+certificados. A operação pública ainda exige provisionar WSS/TURN, domínio,
+TLS válido e credenciais operacionais próprias.
 
 ## Sinalização WSS
 
@@ -185,8 +249,9 @@ em `/usr/bin`. O staging usa `scripts/prepare-sidecars.py --native-libnice` e a
 configuração `apps/desktop/src-tauri/tauri.native-linux.conf.json`.
 A instalação release e duas UIs nativas foram testadas em Debian 12, sem Node ou
 Rust no PATH dos clientes; veja [desktop-qa.md](desktop-qa.md). Isso não estabelece
-compatibilidade Linux universal. Empacotamento e execução Windows continuam sem
-validação. Os avisos originais Rust/nativos e as licenças acompanham o pacote;
+compatibilidade Linux universal. O núcleo Windows foi executado com o backend
+Rust e named pipes; backend nativo Windows, GUI, instalação e privacidade ainda
+exigem evidência própria. Os avisos originais Rust/nativos e as licenças acompanham o pacote;
 sua preservação não constitui auditoria jurídica de compatibilidade.
 
 ## Logs por camada

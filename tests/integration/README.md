@@ -30,6 +30,27 @@ sh tests/integration/run_product.sh
 sh tests/integration/run_product.sh --relay
 ```
 
+No Windows, o mesmo teste de produto pode ser executado com named pipes reais:
+
+```powershell
+python tests/integration/run_product_windows.py --report target/windows-product-report.json
+```
+
+O harness seleciona a toolchain MSVC fixada, compila os executáveis e identifica
+o teste pelo artefato JSON do Cargo. `--no-build --test-binary <caminho>` permite
+reutilizar um teste já compilado; `--daemon`, `--vault` e `--signaling` aceitam
+executáveis explícitos. Os clientes são iniciados com `PATH` vazio para não
+depender de Node ou Rust na execução. O relatório registra somente resultados
+dos checks e hashes dos executáveis, sem mensagens, convites, fingerprints,
+SDP ou credenciais.
+
+`scripts/local-operator.py` fornece o serviço WSS real desse laboratório e do
+modo dev. Ele escuta apenas em loopback, cria certificados temporários e entrega
+um bundle público de CA aos processos filhos, preservando as raízes já
+confiadas. Não instala CA no sistema. EOF no controle, `stop` ou interrupção
+encerram o serviço e removem apenas os arquivos temporários desta execução.
+Esse operador local não oferece TURN nem conectividade entre computadores.
+
 O script cria uma CA e um certificado TLS de operador temporários, inicia o serviço WSS real e fornece a CA pública aos processos de laboratório. As chaves TLS do operador são arquivos de configuração temporários, distintos das chaves E2EE dos usuários. O script limpa esses arquivos e encerra o servidor ao sair. Nenhuma identidade de usuário ou mensagem é gravada.
 
 O modo `--relay` exige o serviço `coturn-rest-laboratory` do Compose de desenvolvimento e deve rodar na rede Docker `veyra-infra_laboratory`, onde esse hostname de laboratório pode ser resolvido. O cliente começa com a lista ICE vazia e `relay_only=true`: o serviço WSS emite credenciais TURN REST de até cinco minutos, e o Coturn real valida essas credenciais. O segredo público sintético usado pelo script pertence somente ao operador de laboratório; não é uma credencial do cliente distribuído. O Coturn deve executar sem a opção `userdb`, para manter o driver de banco desabilitado.

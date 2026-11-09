@@ -25,7 +25,20 @@ No Linux, `fstat` valida o tipo FIFO, UID efetivo proprietário e modo sem acess
 por grupo/outros antes do bootstrap. Essa é a verificação de credenciais/permissões
 do canal herdado escolhido, sem criar um listener de Unix socket. Testes alteram
 o modo de um pipe sintético e usam um descriptor de outro tipo para verificar a
-recusa. Windows named pipes com ACL/rejeição de clientes remotos ainda precisam
-de implementação e testes; o início é recusado no Windows até essa garantia
-existir. Isolamento de processos mesma conta não protege de
-malware equivalente.
+recusa.
+
+No Windows, dois named pipes unidirecionais são pré-conectados pelo coordenador
+antes do spawn. Cada um usa nome aleatório, primeira instância, limite de uma
+instância, rejeição de clientes remotos e DACL protegida que concede somente
+direitos individuais de dados ao SID do logon atual. A máscara exclui a criação
+de outra instância. O worker recebe apenas as extremidades de stdin/stdout e
+valida tipo, proprietário/DACL, PID do servidor correspondente ao pai e sessão
+Windows antes de ler o desafio. Os handles originais ficam não herdáveis; a
+duplicação de stdio no spawn é protegida pelo mutex do Rust.
+
+Testes nativos recusam ACL ampla, outro logon/servidor, stdio anônimo e
+bootstrap parcial. O [ensaio Windows em release](../../tests/integration/windows-product-release-report.json)
+exercita dois daemons e dois cofres com WSS real, Noise, mensagens HPKE nos dois
+sentidos, leitura única e revogação. O daemon continua sem receber o handle do
+cofre ou autoridade de abertura. Isolamento de processos da mesma conta não
+protege integralmente de malware com privilégios equivalentes.

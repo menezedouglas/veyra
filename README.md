@@ -10,12 +10,14 @@ ou contatos persistentes. Identidades, ofertas de chaves e filas pertencem à
 execução e ficam em RAM. O protocolo composto ainda não teve revisão independente.
 
 **Ainda não é uma release pronta.** Há código e provas reais de troca direta e
-por Coturn e um pacote Debian instalado e testado com duas UIs. Windows,
+por Coturn, um pacote Debian instalado e testado com duas UIs e o fluxo real
+do núcleo Windows com dois daemons e dois cofres. QA gráfico completo/instalação Windows,
 background, reconexão/troca de rede e auditoria completa de persistência ainda
-precisam de implementação ou evidência.
+precisam de evidência.
 Veja a [matriz completa](IMPLEMENTATION_STATUS.md).
-O início de sessão no Windows é recusado enquanto o IPC exigido com named pipes
-e ACL explícita não estiver implementado.
+O IPC Windows usa named pipes privados com ACL do logon e rejeição remota;
+o [ensaio do produto](tests/integration/windows-product-report.json) passou
+12 checks com binários MSVC debug, sem Node ou Rust no PATH dos clientes.
 
 O [pacote Linux amd64 experimental](artifacts/Veyra_0.1.0_amd64.deb) foi validado
 em Debian 12, sem Node ou Rust no PATH do cliente. Confira
@@ -33,9 +35,58 @@ Compatibilidade Linux universal não é declarada.
 
 ```sh
 pnpm install --frozen-lockfile
-cargo build --locked -p veyra-daemon
-pnpm desktop dev
+pnpm desktop:dev
 ```
+
+`desktop:dev` prepara os binários internos e, quando não há serviço externo
+configurado, inicia automaticamente um operador WSS somente em loopback. A CA
+temporária é confiada apenas pelos processos desta execução, preservando as
+raízes existentes; nada é instalado no repositório de certificados do sistema.
+Fechar o app encerra esse operador e remove seu material TLS temporário.
+Esse modo conecta instâncias na mesma máquina e não oferece TURN nem serviço
+público para outros computadores. Para usar um operador externo, defina
+`VEYRA_SIGNALING_ENDPOINT` ou compile com `VEYRA_DEFAULT_SIGNALING_ENDPOINT`.
+`VEYRA_DEV_LOCAL_OPERATOR=0` desativa o operador automático para desenvolvimento
+offline. O comando `pnpm dev` inicia somente o frontend.
+
+### Windows
+
+Instale os [pré-requisitos do Tauri para Windows](https://v2.tauri.app/start/prerequisites/#windows):
+Visual Studio Build Tools com **Desenvolvimento para desktop com C++** e Windows
+SDK, WebView2 e Rust via rustup. O desktop usa a toolchain **MSVC**; a variante
+GNU não é suficiente. Python 3 prepara os binários internos; OpenSSL é necessário
+para o operador local de desenvolvimento e pode vir com Git for Windows.
+Após instalar as ferramentas, abra um novo terminal.
+
+No PowerShell, use os atalhos `.cmd` para não depender da política de execução
+de scripts `.ps1`:
+
+```powershell
+pnpm.cmd install --frozen-lockfile
+& "$env:USERPROFILE\.cargo\bin\rustup.exe" toolchain install 1.99.1-x86_64-pc-windows-msvc --profile minimal --component rustfmt --component clippy
+npm.cmd run desktop:dev
+```
+
+`desktop:dev` prepara o cofre e o daemon em debug, inicia o operador local quando
+necessário e abre a janela Tauri com Vite. `pnpm.cmd dev` inicia somente o frontend.
+Para gerar o instalador Windows experimental, sem assinatura:
+
+```powershell
+npm.cmd run desktop:build:windows
+```
+
+Esse comando prepara os binários internos em release e os inclui no instalador
+NSIS em `target/release/bundle/nsis/`. Os dois comandos também podem ser
+executados diretamente com `node scripts/desktop.mjs dev` e
+`node scripts/desktop.mjs build:windows`. Eles localizam o Rust em
+`CARGO_HOME/bin` ou no diretório padrão `.cargo/bin` e selecionam a toolchain
+MSVC fixada pelo projeto, sem alterar a toolchain global.
+
+O núcleo Windows já executou pareamento, mensagens nos dois sentidos, abertura
+única e revogação com processos reais. Gerar o instalador não substitui testar
+sua instalação ou auditar o WebView; o pacote continua experimental e sem
+assinatura. O operador local de desenvolvimento não é incluído como serviço
+público na distribuição.
 
 Para compilar o frontend e o binário Linux incorporado sem servidor Vite:
 
@@ -45,11 +96,20 @@ cargo build --locked -p veyra-desktop -p veyra-daemon --features tauri/custom-pr
 ./target/debug/veyra
 ```
 
-O cofre e o daemon devem ficar junto ao executável desktop. Sem operador, a
-sessão local mostra **infraestrutura não configurada**. Para parear duas instâncias,
-configure o mesmo endpoint WSS real em Configurações, antes de iniciar cada
-sessão. O caminho é `/v1/rendezvous`. O certificado precisa ser válido e confiável
-pelo sistema. Convites ficam no corpo do protocolo, nunca em URL de navegador.
+O cofre e o daemon devem ficar junto ao executável desktop. A conexão usa
+automaticamente o serviço configurado na distribuição. Ao entrar com um convite
+válido sem uma sessão conectada, o aplicativo usa o operador indicado nele;
+não é necessário copiar o endereço para as configurações. Credenciais TURN
+temporárias também são recebidas automaticamente pela sinalização.
+
+Esta distribuição ainda não inclui um endpoint público operacional. Publicar
+esse serviço e configurar seu endereço uma vez é responsabilidade de quem
+distribui o aplicativo. Sem serviço, a identidade local continua disponível nas
+plataformas suportadas, e é possível entrar com um convite de um operador real.
+O campo manual fica em **Configuração avançada**. Veja como configurar o serviço
+da distribuição em [operações](docs/relay-operations.md#configuração-automática-do-cliente).
+O caminho é `/v1/rendezvous`, com certificado válido e confiável pelo sistema.
+Convites ficam no corpo do protocolo, nunca em URL de navegador.
 
 O backend Rust inicial aceita direto/TURN UDP e **recusa TURN TCP/TLS**. O backend
 alternativo `native-libnice` mantém DataChannels libdatachannel/libnice e conecta
@@ -72,6 +132,12 @@ pnpm build
 cargo build --locked -p veyra-tests
 python3 tests/integration/run.py
 sh tests/integration/run_product.sh
+```
+
+No Windows, o laboratório equivalente usa a toolchain MSVC fixada e OpenSSL:
+
+```powershell
+python tests/integration/run_product_windows.py --report target/windows-product-report.json
 ```
 
 Os testes de produto usam servidor WSS e processos cofre/daemon reais. A aprovação

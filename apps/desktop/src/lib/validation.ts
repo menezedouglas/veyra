@@ -15,6 +15,7 @@ export function formatRemaining(milliseconds: number): string {
 
 export function validateSignalingEndpoint(value: string): string | undefined {
   if (!value.trim()) return undefined
+  if (new TextEncoder().encode(value.trim()).length > 512) return 'Use um endereço de até 512 bytes.'
   try {
     const url = new URL(value.trim())
     if (url.protocol !== 'wss:' || !url.hostname || url.username || url.password || url.search || url.hash || url.pathname !== '/v1/rendezvous') return 'Use o endereço WSS do operador, com caminho /v1/rendezvous e sem credenciais, parâmetros ou fragmentos.'

@@ -30,7 +30,7 @@ const descriptions: Record<Tab, string> = {
   peers: 'Identidades válidas apenas nesta execução. Compare antes de enviar.',
   invites: 'Pareamento temporário, sem cadastro nem diretório público.',
   connections: 'Estado informado pelo núcleo e rota selecionada pelo transporte.',
-  settings: 'Preferências em RAM e configuração do operador desta sessão.',
+  settings: 'Preferências em RAM e conectividade automática desta sessão.',
 }
 const appearance = useAppearance()
 const desktop = api.isDesktop()
@@ -38,6 +38,7 @@ const tab = ref<Tab>('pending')
 const status = shallowRef<SessionStatus | null>(null)
 const pending = shallowRef<PendingView[]>([])
 const busy = ref(false)
+const joining = ref(false)
 const error = ref('')
 const notice = ref('')
 const endpoint = shallowRef('')
@@ -49,6 +50,8 @@ const discarding = ref<string | null>(null)
 const locallyClaimed = new Set<string>()
 const sessionExists = computed(() => !!status.value?.runtimeId)
 const networkReady = computed(() => desktop && sessionExists.value && status.value?.phase === 'active' && status.value.infrastructureConfigured)
+const joinEnabled = computed(() => desktop && !busy.value && (!sessionExists.value || status.value?.phase === 'active'))
+const connectionSetup = computed(() => status.value?.connectionSetup)
 const peers = computed(() => status.value?.peers ?? [])
 const verificationPeer = computed(() => peers.value.find(peer => peer.id === verificationPeerId.value))
 const revokePeer = computed(() => peers.value.find(peer => peer.id === revokePeerId.value))
@@ -104,10 +107,58 @@ async function refresh() {
 }
 async function start() {
   if (endpointError.value || busy.value) return
-  generation++; busy.value = true; error.value = ''; notice.value = ''
-  try { applyStatus(await api.startSession(false, endpoint.value.trim() || undefined)) }
-  catch { error.value = 'Não foi possível iniciar uma sessão. Confira a proteção de memória, o cofre e o operador configurado.' }
-  finally { busy.value = false }
+  const expectedGeneration = ++generation
+  busy.value = true; error.value = ''; notice.value = ''
+  try {
+    const value = await api.startSession(false, endpoint.value.trim() || undefined)
+    if (alive && expectedGeneration === generation) applyStatus(value)
+  }
+  catch {
+    if (!alive || expectedGeneration !== generation) return
+    error.value = 'Não foi possível iniciar uma sessão. Tente novamente ou confira o diagnóstico de conexão.'
+    try {
+      const value = await api.status()
+      if (alive && expectedGeneration === generation) {
+        applyStatus(value)
+        if (value.phase === 'blocked' && value.reason) error.value = value.reason
+      }
+    } catch { /* Keep the fixed fallback when the native status is unavailable. */ }
+  }
+  finally { if (alive && expectedGeneration === generation) busy.value = false }
+}
+async function join(invite: string) {
+  if (!joinEnabled.value) return
+  const expectedGeneration = ++generation
+  busy.value = true; joining.value = true; error.value = ''; notice.value = ''
+  let accepted = false
+  try {
+    const operation = api.joinInvite(invite, '')
+    invite = ''
+    await operation
+    if (!alive || expectedGeneration !== generation) return
+    accepted = true
+    const value = await api.status()
+    if (!alive || expectedGeneration !== generation) return
+    applyStatus(value)
+    if (value.phase === 'active' && value.runtimeId) {
+      tab.value = 'peers'
+      notice.value = 'Pareamento iniciado. Aguarde a conexão e verifique a identidade.'
+    }
+    else error.value = value.phase === 'blocked' && value.reason ? value.reason : 'O pareamento foi solicitado, mas o núcleo ainda não confirmou a sessão.'
+  } catch {
+    if (!alive || expectedGeneration !== generation) return
+    error.value = accepted ? 'O núcleo não confirmou a sessão após receber o convite.' : 'O convite foi recusado ou a conexão não pôde ser iniciada. Confira a validade e a identidade esperada.'
+    try {
+      const value = await api.status()
+      if (alive && expectedGeneration === generation) {
+        applyStatus(value)
+        if (value.phase === 'blocked' && value.reason) error.value = value.reason
+      }
+    } catch { /* Keep the fixed fallback when the native status is unavailable. */ }
+  } finally {
+    invite = ''
+    if (alive && expectedGeneration === generation) { busy.value = false; joining.value = false }
+  }
 }
 async function end() {
   generation++; busy.value = true; error.value = ''; notice.value = ''; clearSensitiveUI()
@@ -157,7 +208,7 @@ function tick() {
   void refresh()
 }
 onMounted(() => { void refresh(); if (desktop) poll = setInterval(tick, 1000) })
-onUnmounted(() => { alive = false; if (poll) clearInterval(poll); clearSensitiveUI(); pending.value = []; status.value = null; endpoint.value = ''; locallyClaimed.clear() })
+onUnmounted(() => { alive = false; generation++; if (poll) clearInterval(poll); clearSensitiveUI(); pending.value = []; status.value = null; endpoint.value = ''; locallyClaimed.clear() })
 </script>
 
 <template>
@@ -177,9 +228,9 @@ onUnmounted(() => { alive = false; if (poll) clearInterval(poll); clearSensitive
         <div v-if="!desktop" class="mb-6 flex gap-3 rounded-lg border border-warning/35 bg-warning/5 p-4 text-sm" role="status"><Monitor class="mt-0.5 size-5 shrink-0 text-warning" aria-hidden="true" /><div><p class="font-semibold">Aplicativo desktop necessário</p><p class="mt-1 leading-relaxed text-muted-foreground">O navegador não tem acesso ao núcleo Rust. Inicie Veyra no Windows ou Linux para criar uma sessão. Esta página não estabelece conexões nem gera credenciais.</p></div></div>
         <p v-if="error" role="alert" class="mb-5 flex gap-2 rounded-lg border border-destructive/35 bg-destructive/5 p-4 text-sm leading-relaxed text-destructive"><CircleAlert class="mt-0.5 size-4 shrink-0" aria-hidden="true" />{{ error }}</p>
         <p v-if="notice" role="status" class="mb-5 rounded-lg border border-border bg-card p-4 text-sm leading-relaxed text-muted-foreground">{{ notice }}</p>
-        <div v-if="sessionExists && status?.reason" class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4"><p class="flex max-w-3xl gap-2 text-xs leading-relaxed text-warning"><CircleAlert class="mt-0.5 size-4 shrink-0" aria-hidden="true" />{{ status.reason }}</p><Button v-if="!status.infrastructureConfigured" variant="ghost" size="sm" @click="tab = 'settings'">Configurar operador<ArrowRight class="size-3.5" aria-hidden="true" /></Button></div>
+        <div v-if="sessionExists && status?.reason" class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-warning/30 bg-warning/5 p-4"><p class="flex max-w-3xl gap-2 text-xs leading-relaxed text-warning"><CircleAlert class="mt-0.5 size-4 shrink-0" aria-hidden="true" />{{ status.reason }}</p><Button v-if="!status.infrastructureConfigured" variant="ghost" size="sm" @click="tab = 'invites'">Entrar com convite<ArrowRight class="size-3.5" aria-hidden="true" /></Button></div>
 
-        <section v-if="!sessionExists && tab !== 'settings' && tab !== 'connections'" class="rounded-xl border border-border bg-card p-7 sm:p-10"><div class="mb-6 flex size-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/5"><Fingerprint class="size-7 text-primary" :stroke-width="1.5" aria-hidden="true" /></div><h2 class="text-xl font-semibold">Uma nova sessão, uma nova identidade.</h2><p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Mensagens privadas, diretas e efêmeras. A identidade é gerada no núcleo Rust e permanece em RAM. Não há conta, cadastro ou recuperação de sessão.</p><div class="mt-6 flex flex-wrap gap-3"><Button :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button><Button variant="secondary" @click="tab = 'settings'">Configurar operador</Button></div><p class="mt-5 max-w-xl text-xs leading-relaxed text-muted-foreground">Sem operador configurado, apenas a identidade local fica disponível. Para parear, informe o endpoint WSS fornecido pelo operador. Fechar esta execução descarta a sessão.</p></section>
+        <section v-if="!sessionExists && tab !== 'settings' && tab !== 'connections' && tab !== 'invites'" class="rounded-xl border border-border bg-card p-7 sm:p-10"><div class="mb-6 flex size-14 items-center justify-center rounded-xl border border-primary/25 bg-primary/5"><Fingerprint class="size-7 text-primary" :stroke-width="1.5" aria-hidden="true" /></div><h2 class="text-xl font-semibold">Uma nova sessão, uma nova identidade.</h2><p class="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">Mensagens privadas, diretas e efêmeras. A identidade é gerada no núcleo Rust e permanece em RAM. Não há conta, cadastro ou recuperação de sessão.</p><div class="mt-6 flex flex-wrap gap-3"><Button :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button><Button variant="secondary" :disabled="!joinEnabled" @click="tab = 'invites'">Entrar com convite</Button></div><p class="mt-5 max-w-xl text-xs leading-relaxed text-muted-foreground">A conexão usa automaticamente a configuração deste aplicativo ou a recebida em um convite. Fechar esta execução descarta a sessão.</p><p v-if="connectionSetup && !connectionSetup.configured && connectionSetup.reason" class="mt-3 max-w-xl text-xs leading-relaxed text-warning">{{ connectionSetup.reason }}</p></section>
 
         <template v-else-if="tab === 'pending'">
           <div v-if="pending.length" class="space-y-4"><EphemeralMessageCard v-for="message in pending" :key="message.id" :message="message" :peer="peers.find(peer => peer.id === message.peerId)" :busy="discarding === message.id" @open="openMessage(message)" @discard="discard(message)" @expired="pending = pending.filter(item => item.id !== message.id)" /></div>
@@ -188,11 +239,25 @@ onUnmounted(() => { alive = false; if (poll) clearInterval(poll); clearSensitive
         </template>
 
         <template v-else-if="tab === 'peers'"><div v-if="peers.length" class="grid gap-4 xl:grid-cols-2"><PeerIdentityCard v-for="peer in peers" :key="peer.id" :peer="peer" :busy="busy" @verify="verificationPeerId = $event.id" @revoke="revokePeerId = $event.id" /></div><section v-else class="rounded-xl border border-border bg-card px-6 py-12 text-center"><UsersRound class="mx-auto mb-5 size-9 text-muted-foreground" :stroke-width="1.5" aria-hidden="true" /><h2 class="text-lg font-semibold">Nenhum contato nesta sessão</h2><p class="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">Crie ou receba um convite. Após a conexão, compare o código antes de aprovar a identidade.</p><Button class="mt-6" variant="secondary" @click="tab = 'invites'">Abrir convites<ArrowRight class="size-4" aria-hidden="true" /></Button></section><p class="mt-5 text-xs leading-relaxed text-muted-foreground">A identidade muda ao reiniciar o núcleo. Nomes são rótulos locais e não comprovam quem está do outro lado.</p></template>
-        <InvitePanel v-else-if="tab === 'invites'" :enabled="networkReady" @joined="tab = 'peers'" @refresh="refresh" />
+        <InvitePanel v-else-if="tab === 'invites'" :enabled="networkReady && !busy" :join-enabled="joinEnabled" :joining="joining" @join="join" />
         <div v-else-if="tab === 'connections'" class="grid items-start gap-6 xl:grid-cols-2"><ConnectivityDiagnostics :status="status" :desktop="desktop" /><PrivacyStatus :memory-protection="status?.memoryProtection ?? 'not-checked'" /><div class="xl:col-span-2"><Button variant="secondary" :disabled="!desktop || busy" @click="refresh"><RefreshCw class="size-4" aria-hidden="true" />Atualizar diagnóstico</Button></div></div>
 
         <div v-else-if="tab === 'settings'" class="space-y-6">
-          <section class="rounded-lg border border-border bg-card p-6"><h2 class="flex items-center gap-2 text-base font-semibold"><Radio class="size-4 text-primary" aria-hidden="true" />Operador de conectividade</h2><p class="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">Informe o endpoint real fornecido pelo operador. Sinalização e TURN podem observar metadados de rede; as chaves ponta a ponta permanecem nos dispositivos.</p><label for="signaling-endpoint" class="mb-2 mt-5 block text-sm font-medium">Endpoint WSS <span class="text-xs font-normal text-muted-foreground">(opcional para iniciar somente identidade local)</span></label><input id="signaling-endpoint" v-model="endpoint" type="url" class="w-full max-w-2xl font-mono text-xs" placeholder="Endereço do operador, com caminho /v1/rendezvous" autocomplete="off" autocapitalize="off" :spellcheck="false" :disabled="sessionExists || busy" maxlength="2048" aria-describedby="endpoint-help" /><p id="endpoint-help" class="mt-2 text-xs leading-relaxed" :class="endpointError ? 'text-destructive' : 'text-muted-foreground'">{{ endpointError || 'Somente wss://, certificado válido e caminho /v1/rendezvous. Sem tokens na URL. Nenhum serviço público é configurado automaticamente.' }}</p><p v-if="sessionExists" class="mt-4 text-xs text-warning">Para trocar de operador, encerre esta sessão e inicie outra identidade.</p><Button v-else class="mt-5" :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button><p class="mt-5 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">Credenciais temporárias TURN dependem do operador. Não informe segredos operacionais do relay no cliente. A disponibilidade e os caminhos aceitos dependem da infraestrutura configurada.</p></section>
+          <section class="rounded-lg border border-border bg-card p-6">
+            <h2 class="flex items-center gap-2 text-base font-semibold"><Radio class="size-4 text-primary" aria-hidden="true" />Conectividade automática</h2>
+            <p class="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">O Veyra escolhe a conexão configurada para este aplicativo e obtém as credenciais temporárias necessárias. Ao receber um convite, a configuração de conexão vem com ele.</p>
+            <p v-if="connectionSetup" class="mt-4 max-w-2xl text-sm leading-relaxed" :class="connectionSetup.configured ? 'text-muted-foreground' : 'text-warning'">{{ connectionSetup.configured ? 'Configuração de conexão recebida. A disponibilidade será confirmada durante o pareamento.' : connectionSetup.reason }}</p>
+            <details class="mt-5 border-t border-border pt-4">
+              <summary class="cursor-pointer text-sm font-medium">Configuração avançada</summary>
+              <p class="mt-3 max-w-2xl text-xs leading-relaxed text-muted-foreground">Use outro serviço somente se desejar substituir a configuração automática desta sessão.</p>
+              <label for="signaling-endpoint" class="mb-2 mt-4 block text-sm font-medium">Endpoint WSS <span class="text-xs font-normal text-muted-foreground">(avançado)</span></label>
+              <input id="signaling-endpoint" v-model="endpoint" type="url" class="w-full max-w-2xl font-mono text-xs" placeholder="Usar configuração do aplicativo" autocomplete="off" autocapitalize="off" :spellcheck="false" :disabled="sessionExists || busy" maxlength="512" aria-describedby="endpoint-help" />
+              <p id="endpoint-help" class="mt-2 text-xs leading-relaxed" :class="endpointError ? 'text-destructive' : 'text-muted-foreground'">{{ endpointError || 'Deixe vazio para usar a configuração automática. Para substituir: wss://, certificado válido e caminho /v1/rendezvous, sem credenciais ou tokens na URL.' }}</p>
+              <p class="mt-3 text-xs leading-relaxed text-muted-foreground">Os segredos do serviço permanecem na infraestrutura e nunca são informados no aplicativo.</p>
+              <p v-if="sessionExists" class="mt-4 text-xs text-warning">Para substituir esta conexão, encerre a sessão e inicie outra identidade.</p>
+            </details>
+            <Button v-if="!sessionExists" class="mt-5" :disabled="!desktop || busy || !!endpointError" @click="start">{{ busy ? 'Iniciando…' : 'Iniciar sessão' }}<ArrowRight class="size-4" aria-hidden="true" /></Button>
+          </section>
           <section class="rounded-lg border border-border bg-card p-6"><h2 class="text-base font-semibold">Aparência e ciclo da sessão</h2><div class="mt-5 flex flex-wrap items-center justify-between gap-3"><div><p class="text-sm font-medium">Tema {{ appearance.theme === 'dark' ? 'escuro' : 'claro' }}</p><p class="mt-1 text-xs text-muted-foreground">Preferência somente em RAM, sem fonte externa.</p></div><Button variant="secondary" @click="appearance.toggleTheme">{{ appearance.theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro' }}</Button></div><div class="mt-5 border-t border-border pt-5"><p class="text-sm font-medium">Recepção em segundo plano</p><p class="mt-1 text-xs leading-relaxed text-muted-foreground">Indisponível nesta versão. Fechar o aplicativo encerra os componentes locais; o autostart permanece desativado.</p></div></section>
           <section v-if="sessionExists" class="rounded-lg border border-border bg-card p-6"><h2 class="flex items-center gap-2 text-base font-semibold"><ShieldCheck class="size-4 text-primary" aria-hidden="true" />Identidade desta execução</h2><dl class="mt-5 space-y-4"><div><dt class="mb-1 text-xs text-muted-foreground">Impressão digital</dt><dd class="break-all font-mono text-xs leading-relaxed">{{ status?.fingerprint }}</dd></div><div><dt class="mb-1 text-xs text-muted-foreground">Identificador da execução</dt><dd class="break-all font-mono text-xs">{{ status?.runtimeId }}</dd></div></dl><Button class="mt-6" variant="destructive" :disabled="busy" @click="end"><Power class="size-4" aria-hidden="true" />Sair e descartar sessão</Button></section>
           <PrivacyStatus :memory-protection="status?.memoryProtection ?? 'not-checked'" />

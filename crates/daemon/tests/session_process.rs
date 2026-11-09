@@ -1,4 +1,5 @@
-//! Requires the TLS operator laboratory. See tests/integration/run_product.sh.
+//! Requires the TLS operator laboratory. See tests/integration/run_product.sh
+//! or tests/integration/run_product_windows.py.
 //! Four child processes: two network daemons, two isolated vaults. The test
 //! coordinator represents local UI actions and never hands its vault pipe to a daemon.
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -245,7 +246,7 @@ async fn consume(a: &Person, id: &str) {
     assert!(pending(a).await.is_empty());
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "requires a real WSS operator with trusted TLS certificate; run tests/integration/run_product.sh"]
+#[ignore = "requires a real WSS operator with trusted TLS certificate; use run_product.sh or run_product_windows.py"]
 async fn product_session_bidirectional() {
     if std::env::var_os("VEYRA_TEST_REQUIRE_EMPTY_PATH").is_some() {
         assert!(

@@ -5450,7 +5450,9 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tokio",
  "veyra-protocol",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 

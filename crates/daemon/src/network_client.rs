@@ -6,7 +6,6 @@ use std::{
     collections::HashMap,
     io,
     path::Path,
-    process::Stdio,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -15,7 +14,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    process::{Child, Command},
+    process::Child,
     sync::{Mutex, mpsc, oneshot},
     time::timeout,
 };
@@ -46,17 +45,7 @@ pub struct DaemonClient {
 }
 impl DaemonClient {
     pub async fn spawn(path: &Path, vault: Arc<Mutex<VaultClient>>) -> io::Result<Self> {
-        let mut child = Command::new(path)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()?;
-        let mut input = child.stdin.take().ok_or_else(|| io::Error::other("pipe"))?;
-        let mut stream = child
-            .stdout
-            .take()
-            .ok_or_else(|| io::Error::other("pipe"))?;
+        let (mut child, mut input, mut stream) = crate::worker_process::spawn(path).await?;
         let (mut challenge, mut expected) = (Vec::new(), Vec::new());
         veyra_ipc::bootstrap_challenge(&mut challenge, &mut expected)?;
         let (challenge, expected) = (Zeroizing::new(challenge), Zeroizing::new(expected));

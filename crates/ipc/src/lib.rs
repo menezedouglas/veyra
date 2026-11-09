@@ -1,4 +1,5 @@
-//! Bounded IPC on anonymous, inherited OS pipes; no local or remote listener.
+//! Bounded IPC on private inherited OS pipe handles. Linux uses anonymous
+//! pipes; Windows uses preconnected named pipes with a protected logon ACL.
 //! The parent owns both child handles. Do not reconnect a crashed worker.
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -8,6 +9,12 @@ use zeroize::Zeroizing;
 pub const MAX_IPC_FRAME: usize = 32768;
 pub const BOOTSTRAP_LEN: usize = 32;
 
+#[cfg(windows)]
+pub mod windows;
+
+#[cfg(windows)]
+pub use windows::validate_inherited_stdio;
+
 /// Authenticate the inherited Linux channel's OS owner and permissions before
 /// accepting bootstrap material. There is no discoverable listener or pathname.
 #[cfg(target_os = "linux")]
@@ -15,10 +22,8 @@ pub fn validate_inherited_stdio() -> io::Result<()> {
     validate_private_pipe(libc::STDIN_FILENO)?;
     validate_private_pipe(libc::STDOUT_FILENO)
 }
-/// Other platforms must provide their required OS-authenticated channel before
-/// starting a session. In particular, anonymous Windows pipes do not implement
-/// the required explicit named-pipe ACL and remote-client rejection policy.
-#[cfg(not(target_os = "linux"))]
+/// Other platforms must provide an OS-authenticated channel before starting.
+#[cfg(not(any(target_os = "linux", windows)))]
 pub fn validate_inherited_stdio() -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

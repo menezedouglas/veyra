@@ -61,6 +61,7 @@ def main():
                '-CAkey', str(operator/'ca.key'), '-CAcreateserial', '-out', str(operator/'server.pem'),
                '-days', '1', '-extfile', str(operator/'server.ext')])
         env['SSL_CERT_FILE'] = str(operator/'ca.pem')
+        env['VEYRA_SIGNALING_ENDPOINT'] = f'wss://localhost:{args.port}/v1/rendezvous'
 
         def read_logs(process):
             for block in iter(lambda: process.stdout.read(4096), b''):
@@ -195,8 +196,6 @@ def main():
                     action=node.queryAction()
                     if not action.doAction(0):raise CheckFailure('checkbox_action')
                 def start(self):
-                    self.press('Configurações')
-                    self.type_field('Endpoint WSS', f'wss://localhost:{args.port}/v1/rendezvous')
                     self.press('Iniciar sessão')
                     wait_for(lambda:child_vaults(self.process.pid)[0],'real_vault_started')
                     wait_for(lambda:'Identidade ativa nesta execução' in self.text(),'active_identity')
@@ -210,6 +209,7 @@ def main():
             a,b=Window('a'),Window('b')
             a.start();b.start()
             checks['two_native_ui_sessions_and_separate_vaults_started'] = True
+            checks['operator_configured_automatically_without_manual_ui_input'] = True
             fp_pattern=r'\b[0-9A-F]{4}(?: [0-9A-F]{4}){15}\b'
             for window in (a,b):
                 identity=wait_for(lambda w=window:re.search(fp_pattern,w.text()),'native_identity').group(0)

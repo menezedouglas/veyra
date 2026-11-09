@@ -1,4 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod operator_config;
+
+use operator_config::OperatorConfiguration;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{State, WebviewWindow};
@@ -8,13 +11,30 @@ use veyra_daemon::{
     wire::{Command, Peer, Reply},
 };
 use veyra_ipc::{PendingMessage, VaultRequest as Req, VaultResponse as Resp};
-#[derive(Default)]
 struct Session {
     vault: Option<Arc<Mutex<VaultClient>>>,
     daemon: Option<DaemonClient>,
     status: SessionStatus,
     outgoing: std::collections::HashMap<String, (String, u64)>,
     approved: std::collections::HashMap<String, Vec<u8>>,
+    network_attempted: bool,
+}
+impl Default for Session {
+    fn default() -> Self {
+        let setup = operator_config::resolve(None).setup;
+        Self {
+            vault: None,
+            daemon: None,
+            status: SessionStatus {
+                reason: setup.reason.clone(),
+                connection_setup: setup,
+                ..SessionStatus::default()
+            },
+            outgoing: Default::default(),
+            approved: Default::default(),
+            network_attempted: false,
+        }
+    }
 }
 struct AppState(Mutex<Session>);
 #[derive(Serialize)]
@@ -48,19 +68,19 @@ fn local(window: &WebviewWindow) -> Result<(), String> {
         return Err("Janela não autorizada.".into());
     }
     let url = window.url().map_err(|_| "Origem inválida.")?;
-    let trusted = matches!(
-        (url.scheme(), url.host_str()),
-        ("tauri", Some("localhost")) | ("http", Some("tauri.localhost"))
-    );
-    #[cfg(debug_assertions)]
-    let trusted = trusted
-        || (url.scheme() == "http"
-            && url.host_str() == Some("localhost")
-            && url.port() == Some(1420));
-    if !trusted {
+    if !trusted_origin(url.scheme(), url.host_str(), url.port()) {
         return Err("Origem não autorizada.".into());
     }
     Ok(())
+}
+fn trusted_origin(scheme: &str, host: Option<&str>, port: Option<u16>) -> bool {
+    matches!(
+        (scheme, host),
+        ("tauri", Some("localhost")) | ("http", Some("tauri.localhost"))
+    ) || (cfg!(debug_assertions)
+        && scheme == "http"
+        && host == Some("127.0.0.1")
+        && port == Some(1420))
 }
 fn child_path(name: &str) -> Result<std::path::PathBuf, String> {
     let mut p = std::env::current_exe().map_err(|_| "Instalação inválida.")?;
@@ -100,7 +120,12 @@ fn summary(p: &Peer, approved: &std::collections::HashMap<String, Vec<u8>>) -> P
     }
 }
 async fn request(s: &mut Session, c: Command) -> Result<Reply, String> {
-    let d=s.daemon.as_mut().ok_or("Infraestrutura não configurada. Informe um operador WSS real nas configurações antes de iniciar a sessão.")?;
+    let unavailable = s
+        .status
+        .reason
+        .clone()
+        .unwrap_or_else(|| veyra_daemon::NO_CONNECTION_SERVICE.into());
+    let d = s.daemon.as_mut().ok_or(unavailable)?;
     match d.request(c).await {
         Ok(Reply::Refused { reason }) => Err(reason),
         Ok(r) => Ok(r),
@@ -108,8 +133,8 @@ async fn request(s: &mut Session, c: Command) -> Result<Reply, String> {
             s.daemon = None;
             s.status.peers.clear();
             s.status.infrastructure_configured = false;
-            s.status.reason = Some("Daemon encerrado; inicie outra sessão.".into());
-            Err("Daemon indisponível.".into())
+            s.status.reason = Some(NETWORK_SESSION_ENDED.into());
+            Err(NETWORK_SESSION_ENDED.into())
         }
     }
 }
@@ -126,6 +151,7 @@ async fn peers(s: &mut Session) -> Result<Vec<Peer>, String> {
         s.daemon = None;
         s.status.peers.clear();
         s.status.infrastructure_configured = false;
+        s.status.reason = Some(NETWORK_SESSION_ENDED.into());
         return Err("O daemon retornou uma identidade incoerente; conexões descartadas.".into());
     }
     Ok(peers)
@@ -140,11 +166,7 @@ async fn connection_status(
     s.status.deliveries.clear();
     if let Some(v) = s.vault.clone() {
         if v.lock().await.request(&Req::Status {}).await.is_err() {
-            s.daemon = None;
-            s.vault = None;
-            s.status = SessionStatus::default();
-            s.outgoing.clear();
-            s.approved.clear();
+            *s = Session::default();
             s.status.phase = "blocked";
             s.status.reason = Some("Cofre encerrado; sessão descartada.".into())
         } else if let Ok(Resp::Pending { messages }) =
@@ -181,7 +203,7 @@ async fn connection_status(
                 }
             }
             if connection_failed {
-                s.status.reason=Some("Uma tentativa de pareamento falhou ou expirou. Confira o operador e crie outro convite.".into());
+                s.status.reason=Some("Uma tentativa de conexão falhou ou expirou. Tente novamente com um novo convite.".into());
             }
         }
     }
@@ -220,14 +242,106 @@ async fn start_session(
     if s.vault.is_some() {
         return Ok(s.status.clone());
     }
+    begin_session(
+        &mut s,
+        operator_config::resolve(signaling_endpoint.as_deref()),
+    )
+    .await?;
+    Ok(s.status.clone())
+}
+
+const NETWORK_SESSION_ENDED: &str = "O componente de conexão desta identidade foi encerrado. Encerre a sessão antes de iniciar outra conexão.";
+
+fn session_platform(s: &mut Session) -> Result<(), String> {
+    if !cfg!(any(target_os = "linux", windows)) {
+        let reason = "Sessões nesta plataforma ainda não estão disponíveis: o canal IPC seguro não está implementado.";
+        s.status.phase = "blocked";
+        s.status.reason = Some(reason.into());
+        return Err(reason.into());
+    }
+    Ok(())
+}
+
+fn network_start_allowed(s: &Session) -> Result<(), String> {
+    if s.network_attempted {
+        Err(NETWORK_SESSION_ENDED.into())
+    } else {
+        Ok(())
+    }
+}
+
+async fn attach_daemon(s: &mut Session, endpoint: String) -> Result<(), String> {
+    network_start_allowed(s)?;
+    session_platform(s)?;
+    let vault = s.vault.clone().ok_or("Sessão indisponível.")?;
+    // The vault binds one transport Noise key for this identity. Even an
+    // ambiguous startup failure must not launch a replacement network child.
+    s.network_attempted = true;
+    let result = async {
+        let mut daemon = DaemonClient::spawn(&child_path("veyra-daemon")?, vault)
+            .await
+            .map_err(|_| "Não foi possível iniciar o componente de conexão.".to_string())?;
+        match daemon
+            .request(Command::Start {
+                endpoint,
+                transport: Default::default(),
+            })
+            .await
+            .map_err(|_| "Não foi possível iniciar a conexão segura.".to_string())?
+        {
+            Reply::Ok {} => Ok(daemon),
+            Reply::Refused { reason } => Err(reason),
+            _ => Err("Resposta inválida do componente de conexão.".into()),
+        }
+    }
+    .await;
+    match result {
+        Ok(daemon) => {
+            s.daemon = Some(daemon);
+            s.status.infrastructure_configured = true;
+            s.status.reason = s.status.connection_setup.reason.clone().or_else(|| Some("Serviço de conexão preparado. A disponibilidade e a rota serão confirmadas no pareamento.".into()));
+            Ok(())
+        }
+        Err(reason) => {
+            s.status.infrastructure_configured = false;
+            let reason = format!("{reason} Encerre esta sessão antes de tentar uma nova conexão.");
+            s.status.reason = Some(reason.clone());
+            Err(reason)
+        }
+    }
+}
+
+async fn begin_session(
+    s: &mut Session,
+    configuration: OperatorConfiguration,
+) -> Result<(), String> {
+    s.status.connection_setup = configuration.setup;
+    session_platform(s)?;
+    if !s.status.connection_setup.configured && s.status.connection_setup.source != "unconfigured" {
+        let reason = s
+            .status
+            .connection_setup
+            .reason
+            .clone()
+            .unwrap_or_else(|| "Configuração de conexão inválida.".into());
+        s.status.phase = "blocked";
+        s.status.reason = Some(reason.clone());
+        return Err(reason);
+    }
     if veyra_secure_memory::harden_process().is_err() {
         s.status.phase = "blocked";
         s.status.memory_protection = "unavailable";
+        s.status.reason = Some("Proteção de memória indisponível; sessão recusada.".into());
         return Err("Proteção de memória indisponível; sessão recusada.".into());
     }
     let mut v = VaultClient::spawn(&child_path("veyra-vault")?)
         .await
-        .map_err(|_| "Cofre indisponível; compile os binários internos.")?;
+        .map_err(|_| {
+            let reason = "Não foi possível iniciar o cofre seguro; a sessão foi recusada.";
+            s.status.phase = "blocked";
+            s.status.reason = Some(reason.into());
+            reason
+        })?;
     let Resp::Identity {
         fingerprint,
         runtime_id,
@@ -239,34 +353,16 @@ async fn start_session(
     else {
         return Err("Cofre recusou a sessão.".into());
     };
-    let v = Arc::new(Mutex::new(v));
-    if let Some(endpoint) = signaling_endpoint.filter(|s| !s.is_empty()) {
-        let mut d = DaemonClient::spawn(&child_path("veyra-daemon")?, v.clone())
-            .await
-            .map_err(|_| "Daemon indisponível.")?;
-        match d
-            .request(Command::Start {
-                endpoint,
-                transport: Default::default(),
-            })
-            .await
-            .map_err(|_| "Falha no daemon.")?
-        {
-            Reply::Ok {} => {
-                s.daemon = Some(d);
-                s.status.infrastructure_configured = true;
-                s.status.reason=Some("Operador configurado. Rota e disponibilidade só serão confirmadas após pareamento. TURN exige credenciais temporárias do operador.".into());
-            }
-            Reply::Refused { reason } => return Err(reason),
-            _ => return Err("Resposta inválida.".into()),
-        }
-    }
     s.status.phase = "active";
     s.status.fingerprint = Some(fingerprint);
     s.status.runtime_id = Some(runtime_id);
     s.status.memory_protection = "protected";
-    s.vault = Some(v);
-    Ok(s.status.clone())
+    s.status.reason = s.status.connection_setup.reason.clone();
+    s.vault = Some(Arc::new(Mutex::new(v)));
+    if let Some(endpoint) = configuration.endpoint {
+        attach_daemon(s, endpoint).await?;
+    }
+    Ok(())
 }
 #[tauri::command]
 async fn end_session(window: WebviewWindow, state: State<'_, AppState>) -> Result<(), String> {
@@ -329,12 +425,25 @@ async fn join_invite(
     if invite.len() > 4096 || label.len() > 80 || label.chars().any(char::is_control) {
         return Err("Convite ou nome inválido.".into());
     }
-    request(
-        &mut *state.0.lock().await,
-        Command::JoinInvite { token: invite },
-    )
-    .await?;
-    Ok(())
+    // Resolve only a structurally and cryptographically valid invitation before
+    // any child process or network connection can be started for it.
+    let endpoint = veyra_daemon::invitation_endpoint(&invite).map_err(|error| error.to_string())?;
+    let mut s = state.0.lock().await;
+    if s.daemon.is_none() {
+        network_start_allowed(&s)?;
+        let configuration = OperatorConfiguration::invitation(endpoint.clone());
+        if s.vault.is_none() {
+            begin_session(&mut s, configuration).await?;
+        } else {
+            session_platform(&mut s)?;
+            s.status.connection_setup = configuration.setup;
+            attach_daemon(&mut s, endpoint).await?;
+        }
+    }
+    match request(&mut s, Command::JoinInvite { token: invite }).await? {
+        Reply::Ok {} => Ok(()),
+        _ => Err("Resposta inválida ao receber o convite.".into()),
+    }
 }
 #[tauri::command]
 async fn verify_peer(
@@ -586,5 +695,40 @@ fn main() {
     match app {
         Ok(app) => app.run(|_, _| {}),
         Err(_) => std::process::exit(78),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Session, network_start_allowed, trusted_origin};
+
+    #[test]
+    fn a_failed_network_child_is_never_replaced_for_the_same_identity() {
+        let mut session = Session::default();
+        assert!(network_start_allowed(&session).is_ok());
+        session.network_attempted = true;
+        assert!(session.daemon.is_none());
+        assert!(network_start_allowed(&session).is_err());
+    }
+
+    #[test]
+    fn origin_allowlist_keeps_the_dev_server_local_and_debug_only() {
+        assert!(trusted_origin("tauri", Some("localhost"), None));
+        assert!(trusted_origin("http", Some("tauri.localhost"), None));
+        assert_eq!(
+            trusted_origin("http", Some("127.0.0.1"), Some(1420)),
+            cfg!(debug_assertions)
+        );
+        for (scheme, host, port) in [
+            ("http", Some("127.0.0.1"), Some(1421)),
+            ("http", Some("127.0.0.1"), None),
+            ("https", Some("127.0.0.1"), Some(1420)),
+            ("http", Some("127.0.0.1.example.com"), Some(1420)),
+            ("http", Some("localhost"), Some(1420)),
+            ("http", Some("example.com"), Some(1420)),
+            ("file", None, None),
+        ] {
+            assert!(!trusted_origin(scheme, host, port));
+        }
     }
 }

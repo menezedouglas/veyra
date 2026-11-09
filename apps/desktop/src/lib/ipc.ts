@@ -14,6 +14,11 @@ export interface SessionStatus {
   runtimeId?: string | null
   fingerprint?: string | null
   infrastructureConfigured: boolean
+  connectionSetup: {
+    configured: boolean
+    source: 'application' | 'environment' | 'manual' | 'invitation' | 'unconfigured'
+    reason?: string | null
+  }
   reason?: string | null
   peers: PeerSummary[]
   pendingCount: number

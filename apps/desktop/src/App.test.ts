@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { PendingMessage, SessionStatus } from './lib/ipc'
 const native = vi.hoisted(() => ({
   isDesktop: () => true,
-  status: vi.fn(), startSession: vi.fn(), endSession: vi.fn(), listPending: vi.fn(),
+  status: vi.fn(), startSession: vi.fn(), endSession: vi.fn(), listPending: vi.fn(), joinInvite: vi.fn(), createInvite: vi.fn(),
 }))
 vi.mock('./lib/ipc', () => ({ api: native }))
 import App from './App.vue'
@@ -12,6 +12,7 @@ import App from './App.vue'
 const inactive: SessionStatus = {
   phase: 'inactive', runtimeId: null, fingerprint: null,
   infrastructureConfigured: false, reason: 'Infraestrutura não configurada.',
+  connectionSetup: { configured: false, source: 'unconfigured', reason: 'Esta versão ainda não inclui serviço de conexão. A configuração cabe à distribuição do aplicativo; você pode receber um convite para conectar automaticamente.' },
   peers: [], pendingCount: 0, memoryProtection: 'not-checked',
 }
 let app: VueApp | undefined
@@ -30,10 +31,12 @@ function button(label: string): HTMLButtonElement {
   return found
 }
 beforeEach(() => {
-  native.status.mockResolvedValue(inactive)
+  native.status.mockReset().mockResolvedValue(inactive)
   native.endSession.mockResolvedValue(undefined)
   native.listPending.mockResolvedValue([])
   native.startSession.mockReset()
+  native.joinInvite.mockReset()
+  native.createInvite.mockReset()
 })
 afterEach(() => { app?.unmount(); container?.remove(); vi.useRealTimers(); vi.clearAllMocks() })
 
@@ -59,6 +62,172 @@ it('não simula início de sessão quando o núcleo recusa', async () => {
   button('Iniciar sessão').click()
   await settle()
   expect(container.querySelector('[role="alert"]')?.textContent).toContain('Não foi possível iniciar')
+  expect(container.textContent).not.toContain('Identidade ativa nesta execução')
+})
+
+it('usa a configuração do aplicativo sem pedir um endpoint no fluxo principal', async () => {
+  native.status.mockResolvedValue({ ...inactive, connectionSetup: { configured: true, source: 'application' } })
+  native.startSession.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-SINTETICO', infrastructureConfigured: true, connectionSetup: { configured: true, source: 'application' }, memoryProtection: 'protected' })
+  await mount()
+  expect(container.querySelector('#signaling-endpoint')).toBeNull()
+  expect(container.textContent).not.toContain('Configurar operador')
+  button('Conexões').click()
+  await settle()
+  const configuration = [...container.querySelectorAll('dt')].find(node => node.textContent === 'Configuração de conexão')!
+  expect(configuration.nextElementSibling?.textContent).toBe('Configurada')
+  expect(container.textContent).toContain('Nenhum transporte estabelecido.')
+  button('Convites').click()
+  await settle()
+  expect(button('Criar convite').disabled).toBe(true)
+  button('Mensagens pendentes').click()
+  await settle()
+  button('Iniciar sessão').click()
+  await settle()
+  expect(native.startSession).toHaveBeenCalledWith(false, undefined)
+})
+
+it('mantém a substituição manual opcional na configuração avançada', async () => {
+  native.startSession.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-SINTETICO', memoryProtection: 'protected' })
+  await mount()
+  button('Configurações').click()
+  await settle()
+  const advanced = container.querySelector('details')!
+  const input = container.querySelector<HTMLInputElement>('#signaling-endpoint')!
+  expect(advanced.open).toBe(false)
+  expect(advanced.contains(input)).toBe(true)
+  expect(input.placeholder).toBe('Usar configuração do aplicativo')
+  expect(input.maxLength).toBe(512)
+  advanced.open = true
+  input.value = 'wss://synthetic.invalid/v1/rendezvous'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  button('Iniciar sessão').click()
+  await settle()
+  expect(native.startSession).toHaveBeenCalledWith(false, 'wss://synthetic.invalid/v1/rendezvous')
+})
+
+it('explica a ausência de serviço sem transferir sua implantação ao usuário', async () => {
+  await mount()
+  expect(container.textContent).toContain(inactive.connectionSetup.reason)
+  expect(container.textContent).not.toContain('informe o endpoint')
+  expect(container.textContent).not.toContain('Configurar operador')
+  button('Entrar com convite').click()
+  await settle()
+  expect(button('Criar convite').disabled).toBe(true)
+  expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.disabled).toBe(false)
+  expect(native.startSession).not.toHaveBeenCalled()
+})
+
+it('recebe convite sem sessão e aguarda o estado nativo antes de abrir contatos', async () => {
+  let finishJoin!: () => void
+  let finishStatus!: (value: SessionStatus) => void
+  native.joinInvite.mockReturnValue(new Promise<void>(resolve => { finishJoin = resolve }))
+  await mount()
+  button('Entrar com convite').click()
+  await settle()
+  const input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'CONVITE-SINTETICO'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  button('Iniciar pareamento').click()
+  await settle()
+  expect(native.joinInvite).toHaveBeenCalledWith('CONVITE-SINTETICO', '')
+  expect(input.value).toBe('')
+  expect(native.startSession).not.toHaveBeenCalled()
+  native.status.mockReturnValue(new Promise<SessionStatus>(resolve => { finishStatus = resolve }))
+  finishJoin()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Convites')
+  finishStatus({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-CONVITE', infrastructureConfigured: true, connectionSetup: { configured: true, source: 'invitation' }, memoryProtection: 'protected' })
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(container.textContent).toContain('Identidade ativa nesta execução')
+})
+
+it('permite receber convite com identidade local sem infraestrutura configurada', async () => {
+  native.status.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-SINTETICO', memoryProtection: 'protected' })
+  await mount()
+  button('Convites').click()
+  await settle()
+  expect(button('Criar convite').disabled).toBe(true)
+  expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.disabled).toBe(false)
+})
+
+it('mantém o pareamento no aplicativo ao trocar de aba e libera as ações ao concluir', async () => {
+  let finishJoin!: () => void
+  native.status.mockResolvedValue({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-SINTETICO', memoryProtection: 'protected' })
+  native.joinInvite.mockReturnValue(new Promise<void>(resolve => { finishJoin = resolve }))
+  await mount()
+  button('Convites').click()
+  await settle()
+  const input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'CONVITE-SINTETICO'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  button('Iniciar pareamento').click()
+  await settle()
+  button('Configurações').click()
+  await settle()
+  expect(button('Sair e descartar sessão').disabled).toBe(true)
+  button('Sair e descartar sessão').click()
+  expect(native.endSession).not.toHaveBeenCalled()
+  button('Convites').click()
+  await settle()
+  expect(button('Conectando…').disabled).toBe(true)
+  expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.value).toBe('')
+  finishJoin()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(button('Sair e descartar sessão').disabled).toBe(false)
+})
+
+it('ignora a resposta de pareamento depois de desmontar o aplicativo', async () => {
+  let finishJoin!: () => void
+  native.joinInvite.mockReturnValue(new Promise<void>(resolve => { finishJoin = resolve }))
+  await mount()
+  button('Entrar com convite').click()
+  await settle()
+  const input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'CONVITE-SINTETICO'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  button('Iniciar pareamento').click()
+  await settle()
+  app!.unmount()
+  app = undefined
+  native.status.mockClear()
+  finishJoin()
+  await settle()
+  expect(native.status).not.toHaveBeenCalled()
+})
+
+it('mostra a recusa do IPC confirmada pelo núcleo ao iniciar a sessão', async () => {
+  const reason = 'Não foi possível iniciar o cofre seguro; a sessão foi recusada.'
+  native.startSession.mockRejectedValue(new Error('DETALHE-NATIVO-NAO-EXIBIR'))
+  await mount()
+  native.status.mockResolvedValue({ ...inactive, phase: 'blocked', reason })
+  button('Iniciar sessão').click()
+  await settle()
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(reason)
+  expect(container.textContent).not.toContain('DETALHE-NATIVO-NAO-EXIBIR')
+  expect(container.textContent).not.toContain('Identidade ativa nesta execução')
+})
+
+it('mostra a recusa do núcleo ao entrar com convite sem revelar o erro recebido', async () => {
+  const reason = 'Não foi possível iniciar o cofre seguro; a sessão foi recusada.'
+  native.joinInvite.mockRejectedValue(new Error('CONVITE-NAO-EXIBIR'))
+  await mount()
+  button('Entrar com convite').click()
+  await settle()
+  const input = container.querySelector<HTMLTextAreaElement>('#join-invitation')!
+  input.value = 'CONVITE-SINTETICO'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  await settle()
+  native.status.mockResolvedValue({ ...inactive, phase: 'blocked', reason })
+  button('Iniciar pareamento').click()
+  await settle()
+  expect(container.textContent).toContain(reason)
+  expect(container.textContent).not.toContain('CONVITE-NAO-EXIBIR')
   expect(container.textContent).not.toContain('Identidade ativa nesta execução')
 })
 

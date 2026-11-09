@@ -51,7 +51,8 @@ privada Noise.
 ## Cofre separado
 
 O executável `veyra-vault` é iniciado pelo coordenador com stdin/stdout em pipes
-anônimos herdados. Não há listener local ou externo. Um desafio aleatório de
+privados herdados: anônimos no Linux e named pipes pré-conectados no Windows.
+Não há listener do cofre disponível para novos clientes. Um desafio aleatório de
 32 bytes é enviado somente pelo pipe e respondido com SHA-256 com domínio
 `Veyra/child-bootstrap/v1`. Não é uma autenticação de rede: a propriedade de
 acesso vem dos handles privados herdados do processo pai. A resposta detecta
@@ -70,9 +71,25 @@ A identidade local vem do handle herdado privado, de seu proprietário no kernel
 e do material efêmero; não há socket descobrível ou autenticação por pathname.
 Testes reais rejeitam tipo e permissões incorretos. Isso não impede processos
 privilegiados nem malware com controle equivalente do endpoint.
-Os named pipes com ACL e rejeição remota exigidos no Windows ainda estão pendentes.
-O worker recusa o início nessa plataforma antes do bootstrap; não usa pipes
-anônimos Windows como substituto silencioso dessa garantia.
+No Windows, o pai cria dois named pipes unidirecionais com nomes CSPRNG,
+`FILE_FLAG_FIRST_PIPE_INSTANCE`, uma única instância e
+`PIPE_REJECT_REMOTE_CLIENTS`. A DACL protegida concede direitos individuais de
+dados somente ao SID do logon atual, sem `Everyone`, direitos genéricos de
+escrita ou permissão de criar outra instância. O pai abre e pré-conecta os
+clientes antes do spawn e verifica que o PID do cliente é o seu próprio PID.
+Os handles originais do pai não são herdáveis; o spawn fornece ao worker as
+duplicatas de stdin/stdout necessárias.
+
+Antes de ler o desafio, o worker verifica tipo e extremidade do pipe, instância
+única, proprietário/DACL, PID do servidor correspondente ao pai observado pelo
+SO e sessão Windows correspondente. Arquivos redirecionados, pipes anônimos,
+ACL ampla, outro servidor e outra sessão são recusados. Não há ciclo de
+reconexão nem nomes de pipes ou desafios em argumentos, ambiente ou arquivos.
+O desafio continua sendo a autenticação efêmera da instância; PID e ACL são
+verificações adicionais do canal nativo. Testes de API Windows, de processos e
+o [fluxo real do produto](../tests/integration/windows-product-report.json)
+passaram. O daemon recebe apenas seu canal com o coordenador, que encaminha o
+enum estreito de custódia; ele não recebe o handle do cofre nem `OpenOnce`.
 Processos sob a mesma conta não oferecem isolamento integral contra malware.
 
 ## Tempo e falhas
@@ -81,8 +98,21 @@ Linux usa `CLOCK_BOOTTIME`, que inclui tempo suspenso. Falha do relógio encerra
 o cofre; tempo regressivo invalida ofertas e pendências. O prazo receptor está
 ancorado na oferta original. Retry, reconexão e reabertura não criam deadline.
 Windows implementa VirtualLock com exclusão WER das páginas, WER NOHEAP e
-GetTickCount64; esse crate passou por compilação cruzada. Falhas nativas recusam
-a operação. Execução, suspensão, IPC e instalação Windows seguem sem validação.
+GetTickCount64. Esses mecanismos e o IPC foram exercitados pelo fluxo real do
+núcleo em MSVC debug; falhas nativas recusam a operação. Suspensão, hibernação,
+viewer gráfico, instalação e auditoria abrangente de resíduos Windows ainda
+precisam de validação.
+
+Antes das alocações seguras, o processo Windows prepara e verifica um mínimo
+de working set de 2 MiB. A quota de
+[VirtualLock](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtuallock)
+depende desse mínimo; a quota inicial limitava os testes paralelos do cofre.
+O ajuste usa
+[Get/SetProcessWorkingSetSizeEx](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-setprocessworkingsetsizeex),
+preserva flags de limite, respeita um máximo rígido existente e relê o resultado.
+Isso configura somente o próprio processo e não substitui verificar cada
+VirtualLock e registro WER. Se a quota ou qualquer chamada falhar, o buffer não
+é aceito como protegido.
 
 O claim remove a pendência e toma a chave antes de descriptografar. Uma falha
 posterior perde a mensagem. ACK significa aceitação em RAM; o remetente elimina
@@ -98,6 +128,15 @@ de origem no Rust, CSP restritiva, sem shell/filesystem/rede arbitrária, sem
 conteúdo remoto, DevTools e título sem dados de peers. A UI usa Vue/TypeScript,
 tokens locais e Pinia apenas para preferência visual em RAM. O modo incognito
 foi configurado; a auditoria de escrita do WebView permanece necessária.
+
+No modo `desktop:dev`, o supervisor inicia um operador WSS real em loopback
+quando não existe endpoint de distribuição/execução e o modo local não foi
+desativado. O helper cria TLS temporário, informa endpoint e bundle público de
+CA ao supervisor e os fornece somente aos subprocessos do app. O bundle mantém
+as raízes já confiadas; nenhuma CA é instalada no SO. EOF/`stop` encerram o
+operador e removem sua configuração temporária. Esse serviço é apenas para a
+mesma máquina; o aplicativo distribuído continua dependendo de um operador
+externo real para conectividade entre computadores.
 
 Fontes primárias: [processos Tauri](https://v2.tauri.app/concept/process-model/),
 [capabilities](https://v2.tauri.app/security/capabilities/),

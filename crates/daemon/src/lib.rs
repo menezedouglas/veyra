@@ -2,7 +2,9 @@
 mod network_client;
 pub mod network_host;
 pub mod wire;
+mod worker_process;
 pub use network_client::DaemonClient;
+pub use veyra_session_runtime::{invitation_endpoint, signaling_endpoint_valid};
 /// Derive the UI identity from the signed document, never a network-child label.
 pub fn validate_peer_metadata(peer: &wire::Peer) -> io::Result<veyra_protocol::IdentityBinding> {
     use veyra_protocol::Frame;
@@ -49,10 +51,10 @@ pub fn validate_recipient_offer(
     Ok(offer)
 }
 use serde::Serialize;
-use std::{io, path::Path, process::Stdio, time::Duration};
+use std::{io, path::Path, time::Duration};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    process::{Child, ChildStdin, ChildStdout, Command},
+    process::Child,
     time::timeout,
 };
 use veyra_ipc::{MAX_IPC_FRAME, VaultRequest, VaultResponse};
@@ -60,11 +62,29 @@ use zeroize::Zeroizing;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ConnectionSetup {
+    pub configured: bool,
+    pub source: &'static str,
+    pub reason: Option<String>,
+}
+pub const NO_CONNECTION_SERVICE: &str = "Esta versão ainda não inclui um serviço de conexão. Você pode receber um convite para usar o serviço informado por ele. A conexão padrão deve ser configurada na distribuição do aplicativo.";
+impl Default for ConnectionSetup {
+    fn default() -> Self {
+        Self {
+            configured: false,
+            source: "unconfigured",
+            reason: Some(NO_CONNECTION_SERVICE.into()),
+        }
+    }
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionStatus {
     pub phase: &'static str,
     pub runtime_id: Option<String>,
     pub fingerprint: Option<String>,
     pub infrastructure_configured: bool,
+    pub connection_setup: ConnectionSetup,
     pub reason: Option<String>,
     pub peers: Vec<PeerSummary>,
     pub pending_count: usize,
@@ -91,17 +111,25 @@ pub struct PeerSummary {
 }
 impl Default for SessionStatus {
     fn default() -> Self {
-        Self { phase: "inactive", runtime_id: None, fingerprint: None,
+        Self {
+            phase: "inactive",
+            runtime_id: None,
+            fingerprint: None,
             infrastructure_configured: false,
-            reason: Some("Infraestrutura não configurada. Informe um operador WSS confiável nas configurações antes de iniciar uma sessão conectada.".into()),
-            peers: Vec::new(), pending_count: 0, memory_protection: "not-checked",deliveries:Vec::new() }
+            connection_setup: ConnectionSetup::default(),
+            reason: Some(NO_CONNECTION_SERVICE.into()),
+            peers: Vec::new(),
+            pending_count: 0,
+            memory_protection: "not-checked",
+            deliveries: Vec::new(),
+        }
     }
 }
 
 pub struct VaultClient {
     child: Child,
-    input: ChildStdin,
-    output: ChildStdout,
+    input: worker_process::WorkerInput,
+    output: worker_process::WorkerOutput,
     in_flight: bool,
 }
 struct SensitiveRequest(VaultRequest);
@@ -127,15 +155,7 @@ impl VaultClient {
         self.request(&request.0).await
     }
     pub async fn spawn(path: &Path) -> io::Result<Self> {
-        let mut command = Command::new(path);
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-        let mut child = command.spawn()?;
-        let mut input = child.stdin.take().ok_or_else(unavailable)?;
-        let mut output = child.stdout.take().ok_or_else(unavailable)?;
+        let (mut child, mut input, mut output) = worker_process::spawn(path).await?;
         // Bootstrap uses the exact inherited handle, never an endpoint name.
         let mut challenge = Vec::new();
         let mut reply = Vec::new();

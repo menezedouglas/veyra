@@ -18,13 +18,13 @@ rules={
 errors=[]
 paths=list((root/'apps/desktop/src').rglob('*'))+list((root/'crates').rglob('*.rs'))
 for path in paths:
-    if not path.is_file() or '.test.' in path.name or '/tests/' in str(path):continue
+    if not path.is_file() or '.test.' in path.name or 'tests' in path.relative_to(root).parts:continue
     if path.name == 'build.rs':continue  # Cargo directives are build output, not runtime logging.
     # This laboratory-only binary uses stdout as inherited controller IPC;
     # it is not bundled in Veyra and carries synthetic fixtures only.
     if path.relative_to(root).as_posix() == 'crates/transport-webrtc/src/bin/veyra-transport-probe.rs':continue
     if path.suffix not in ('.ts','.vue','.rs'):continue
-    source=path.read_text()
+    source=path.read_text(encoding='utf-8')
     # Test modules may print synthetic fixtures through the test harness only.
     source=source.split('#[cfg(test)]')[0]
     for label,pattern in rules.items():

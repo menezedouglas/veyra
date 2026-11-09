@@ -9,8 +9,11 @@
     "dev": "pnpm --filter veyra-desktop dev",
     "build": "pnpm --filter veyra-desktop build",
     "test": "pnpm --filter veyra-desktop test",
+    "test:scripts": "node --test tests/scripts/*.test.mjs",
     "typecheck": "pnpm --filter veyra-desktop typecheck",
     "desktop": "pnpm --filter veyra-desktop tauri",
+    "desktop:dev": "node scripts/desktop.mjs dev",
+    "desktop:build:windows": "node scripts/desktop.mjs build:windows",
     "brand:icons": "python3 scripts/generate-icons.py"
   }
 }

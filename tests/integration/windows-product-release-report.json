@@ -1,0 +1,41 @@
+{
+  "platform": "windows",
+  "executedAtUtc": "2026-11-09T21:49:23.846285+00:00",
+  "checks": {
+    "real_wss_with_scoped_trusted_ca": true,
+    "explicit_client_paths_without_node_or_rust_on_path": true,
+    "two_daemons_and_two_isolated_vaults": true,
+    "validated_invitation_binding_and_noise_pairing": true,
+    "matching_transcript_codes_and_explicit_approval": true,
+    "ciphertext_only_network_path": true,
+    "bidirectional_hpke_messages": true,
+    "opening_requires_confirmation_and_is_consumed_once": true,
+    "selected_ice_route_is_direct": true,
+    "revocation_discards_pending_message": true,
+    "owned_processes_and_temporary_tls_cleaned": true,
+    "executables_unchanged_by_laboratory": true
+  },
+  "failure": null,
+  "execution": {
+    "profile": "release",
+    "toolchain": "1.99.1-x86_64-pc-windows-msvc",
+    "scope": "same-host-core-product-processes",
+    "artifacts": "cargo-build",
+    "graphicalValidation": false,
+    "installationValidation": false
+  },
+  "binaries": {
+    "signaling": {
+      "sha256": "7905e0f470193adf904ee053b178d48e784d2886d2ce1c26f3149ad82048b450"
+    },
+    "daemon": {
+      "sha256": "3e3aadd203362aa470f30b6a9b1afeba43d455bbde5af23fecdb7278a208c545"
+    },
+    "vault": {
+      "sha256": "33544a8f85e6ae3fc048a9f6b0ad532c47fbd389bfb93cdc20e9cc3d9b6b7b24"
+    },
+    "test": {
+      "sha256": "71aa9dc8374e6c3a2a69a3684c05dbe450eb4eea8d6cc1d899d2f9c6a7c75ba6"
+    }
+  }
+}

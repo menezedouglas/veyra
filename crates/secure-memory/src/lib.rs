@@ -90,11 +90,75 @@ mod platform {
 #[cfg(windows)]
 mod platform {
     use super::*;
+    use std::sync::OnceLock;
+    use windows_sys::Win32::Foundation::ERROR_WORKING_SET_QUOTA;
     use windows_sys::Win32::System::ErrorReporting::{
         WerRegisterExcludedMemoryBlock, WerUnregisterExcludedMemoryBlock,
     };
     use windows_sys::Win32::System::Memory::*;
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    // VirtualLock's quota is the minimum working set minus OS overhead. The
+    // Windows default (about 200 KiB) cannot cover the vault's bounded key pages.
+    // 2 MiB covers 128 offer pages, 128 pending-key pages and process overhead;
+    // it is a per-process quota, not a replacement for checking each native lock.
+    const MINIMUM_LOCKING_WORKING_SET: usize = 2 * 1024 * 1024;
+    static LOCK_BUDGET: OnceLock<io::Result<()>> = OnceLock::new();
+
+    pub(super) fn ensure_lock_budget() -> io::Result<()> {
+        match LOCK_BUDGET.get_or_init(prepare_working_set) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(match error.raw_os_error() {
+                Some(code) => io::Error::from_raw_os_error(code),
+                None => io::Error::new(error.kind(), "secure working set unavailable"),
+            }),
+        }
+    }
+
+    fn prepare_working_set() -> io::Result<()> {
+        let process = unsafe { GetCurrentProcess() };
+        let (mut minimum, mut maximum, mut flags) = (0, 0, 0);
+        if unsafe { GetProcessWorkingSetSizeEx(process, &mut minimum, &mut maximum, &mut flags) }
+            == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if minimum >= MINIMUM_LOCKING_WORKING_SET {
+            return Ok(());
+        }
+        // Respect a caller/admin's explicit hard maximum instead of silently
+        // lifting it. The normal Windows soft maximum may grow to fit the quota.
+        if flags & QUOTA_LIMITS_HARDWS_MAX_ENABLE != 0 && maximum < MINIMUM_LOCKING_WORKING_SET {
+            return Err(io::Error::from_raw_os_error(ERROR_WORKING_SET_QUOTA as i32));
+        }
+        let target_maximum = maximum.max(MINIMUM_LOCKING_WORKING_SET);
+        if unsafe {
+            SetProcessWorkingSetSizeEx(process, MINIMUM_LOCKING_WORKING_SET, target_maximum, flags)
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // The Ex API preserves hard-limit flags. Recheck the native result;
+        // a denied or insufficient quota must never allow an unlocked buffer.
+        let mut actual_flags = 0;
+        if unsafe {
+            GetProcessWorkingSetSizeEx(process, &mut minimum, &mut maximum, &mut actual_flags)
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let hard_flags = QUOTA_LIMITS_HARDWS_MIN_ENABLE | QUOTA_LIMITS_HARDWS_MAX_ENABLE;
+        if minimum < MINIMUM_LOCKING_WORKING_SET
+            || maximum < target_maximum
+            || actual_flags & hard_flags != flags & hard_flags
+        {
+            return Err(io::Error::from_raw_os_error(ERROR_WORKING_SET_QUOTA as i32));
+        }
+        Ok(())
+    }
+
     pub fn allocate(len: usize) -> io::Result<LockedBuffer> {
+        ensure_lock_budget()?;
         let allocation_len = len.div_ceil(4096) * 4096;
         let p = unsafe {
             VirtualAlloc(
@@ -166,6 +230,7 @@ pub fn harden_process() -> io::Result<()> {
     }
     #[cfg(windows)]
     {
+        platform::ensure_lock_budget()?;
         use windows_sys::Win32::System::ErrorReporting::{
             WER_FAULT_REPORTING_FLAG_NOHEAP, WerSetFlags,
         };
@@ -232,6 +297,22 @@ mod tests {
                 e.raw_os_error().is_some(),
                 "failure must come from checked native call"
             ),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_retains_128_locked_key_pages_simultaneously() {
+        // Keep every allocation alive: success must cover the real concurrent
+        // page budget, including VirtualLock and WER exclusion for each page.
+        let mut buffers = (0..128)
+            .map(|_| LockedBuffer::new(4096).expect("native locked-key page"))
+            .collect::<Vec<_>>();
+        for (index, buffer) in buffers.iter_mut().enumerate() {
+            buffer.as_mut_slice().fill(index as u8);
+        }
+        for (index, buffer) in buffers.iter().enumerate() {
+            assert!(buffer.as_slice().iter().all(|byte| *byte == index as u8));
         }
     }
 }

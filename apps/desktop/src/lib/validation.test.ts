@@ -25,4 +25,8 @@ describe('endpoint de sinalização', () => {
     expect(validateSignalingEndpoint('wss://operator.invalid/v1/rendezvous')).toBeUndefined()
     for (const endpoint of ['http://operator.invalid/v1/rendezvous', 'wss://operator.invalid/other', 'wss://user:password@operator.invalid/v1/rendezvous', 'wss://operator.invalid/v1/rendezvous?token=synthetic', 'wss://operator.invalid/v1/rendezvous#synthetic']) expect(validateSignalingEndpoint(endpoint)).toBeDefined()
   })
+  it('recusa endereços acima do limite nativo de 512 bytes', () => {
+    expect(validateSignalingEndpoint(`wss://${'a'.repeat(500)}.invalid/v1/rendezvous`)).toContain('512')
+    expect(validateSignalingEndpoint(`wss://${'á'.repeat(250)}.invalid/v1/rendezvous`)).toContain('512')
+  })
 })
