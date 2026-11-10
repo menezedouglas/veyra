@@ -5,9 +5,11 @@
 **Mensagens privadas, diretas e efêmeras.** Privado por padrão. Efêmero por design.
 
 Mensageiro desktop experimental, gratuito e Apache-2.0, com núcleo Rust e
-interface Tauri 2/Vue 3 em português. Não há contas, histórico, banco de mensagens
-ou contatos persistentes. Identidades, ofertas de chaves e filas pertencem à
-execução e ficam em RAM. O protocolo composto ainda não teve revisão independente.
+interface Tauri 2/Vue 3 em português. Não há contas, histórico ou banco de mensagens.
+Os contatos sincronizados ficam salvos localmente e aparecem desconectados ao
+reabrir o app. Identidades, autorizações, ofertas de chaves e filas pertencem à
+execução e ficam em RAM. Um novo convite e a verificação da sessão são necessários
+para voltar a conversar. O protocolo composto ainda não teve revisão independente.
 
 **Ainda não é uma release pronta.** Há código e provas reais de troca direta e
 por Coturn, um pacote Debian instalado e testado com duas UIs e o fluxo real

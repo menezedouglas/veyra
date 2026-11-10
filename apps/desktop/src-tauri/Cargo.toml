@@ -1,6 +1,6 @@
 [package]
 name = "veyra-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
@@ -14,7 +14,9 @@ tauri-build = { version = "=2.7.4", features = [] }
 [dependencies]
 tauri = { version = "=2.12.5", features = [] }
 serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
 veyra-ipc = { path = "../../../crates/ipc" }
+veyra-identity = { path = "../../../crates/identity" }
 veyra-secure-memory = { path = "../../../crates/secure-memory" }
 veyra-daemon = { path = "../../../crates/daemon" }
 veyra-domain = { path = "../../../crates/domain" }
@@ -22,6 +24,9 @@ veyra-protocol = { path = "../../../crates/protocol" }
 veyra-connectivity = { path = "../../../crates/connectivity" }
 tokio = { version = "=1.54.1", features = ["sync"] }
 zeroize = "=1.8.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [[bin]]
 name = "veyra"

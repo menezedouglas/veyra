@@ -16,11 +16,11 @@ O mesmo aplicativo deve iniciar e aceitar conexões. Esses papéis são de trans
 
 Priorize o caminho direto e utilize relay automaticamente quando necessário. A E2EE termina exclusivamente nos dispositivos dos participantes. Nenhum operador recebe chaves privadas de identidade dos usuários, segredos das sessões ponta a ponta ou chaves de abertura das mensagens.
 
-Não criar contas, cadastro por telefone/e-mail, lista pública de usuários, banco de mensagens, histórico, backup, recuperação de sessão ou armazenamento de contatos. Identidades e autorizações são temporárias por execução do núcleo, não por janela aberta.
+Não criar contas, cadastro por telefone/e-mail, lista pública de usuários, banco de mensagens, histórico, backup ou recuperação de sessão. Persistir os contatos sincronizados em catálogo local nativo para que fechar o aplicativo não perca a lista. Identidades e autorizações continuam temporárias por execução do núcleo, não por janela aberta.
 
 Mensagens e credenciais do usuário ficam somente em RAM controlada pela aplicação. A primeira versão suporta texto e envio individual ou para múltiplos destinatários selecionados. Não implementar anexos, chamadas, grupos persistentes, blockchain, DHT, VPN, SSH, IA ou recursos sociais.
 
-Prioridade decisória: **autenticidade e confidencialidade → ausência de persistência → disponibilidade → conveniência**. Nunca resolver uma falha gravando mensagens, aceitando identidade não verificada ou transmitindo texto claro.
+Prioridade decisória: **autenticidade e confidencialidade → ausência de persistência de mensagens e segredos → disponibilidade → conveniência**. O catálogo público de contatos é a exceção de persistência autorizada. Nunca resolver uma falha gravando mensagens, aceitando identidade não verificada ou transmitindo texto claro.
 
 Não anunciar anonimato, conexão universal, irrecuperabilidade absoluta, resistência a malware no endpoint ou impossibilidade de o destinatário copiar a mensagem. “Leitura única” significa no máximo uma abertura permitida pelo cliente conforme. O protocolo da aplicação será experimental até revisão independente.
 
@@ -171,7 +171,7 @@ O pareamento ocorre por convite temporário contendo endereço do serviço de en
 
 Mostre impressão digital e código de verificação derivado do transcript e das identidades dos dois lados, por método documentado. Exija aprovação explícita e recomende comparação por canal independente. Nunca trate um nome exibido ou uma afirmação do serviço de sinalização como identidade verificada.
 
-Troca de identidade ou reinício do núcleo exige novo pareamento. Fechar e reabrir a janela não muda a identidade se daemon e cofre continuarem ativos. Revogar um contato impede novas operações e descarta suas pendências locais, sem prometer apagar cópias remotas.
+Troca de identidade ou reinício do núcleo exige novo pareamento e verificação. Fechar e reabrir a janela não muda a identidade se daemon e cofre continuarem ativos. O catálogo público de contatos sobrevive ao encerramento e aparece offline ao reabrir; não restaura a confiança da sessão anterior, não reconecta automaticamente nem associa identidades novas pelo nome. Revogar um contato remove sua entrada persistida, impede novas operações e descarta suas pendências locais, sem prometer apagar cópias remotas.
 
 ## 7. Camadas de transporte e criptografia
 
@@ -288,13 +288,14 @@ Aplique quotas, rate limits, antiamplificação e restrições de destinos inade
 
 Um relay possui suas próprias chaves TLS e credenciais operacionais; o requisito é não possuir chaves privadas dos usuários nem chaves E2EE. Mesmo encerrando TLS externo, ele só obtém tráfego protegido pelos endpoints.
 
-Não é possível impor apagamento a um operador malicioso. Ele pode copiar ciphertext e metadados; a confidencialidade não deve depender da honestidade do relay. A política sem persistência é uma obrigação da implementação e operação de referência, não uma prova sobre terceiros.
+Não é possível impor apagamento a um operador malicioso. Ele pode copiar ciphertext e metadados; a confidencialidade não deve depender da honestidade do relay. A política sem persistência de mensagens é uma obrigação da implementação e operação de referência, não uma prova sobre terceiros.
 
 ## 14. Persistência e exposição residual
 
 | Informação | Política |
 |---|---|
-| Texto, rascunhos, envelopes, chaves privadas, contatos, convites e estado de sessão | Somente RAM, com validade e limites |
+| Texto, rascunhos, envelopes, chaves privadas, convites, códigos, autorizações e estado de sessão | Somente RAM, com validade e limites |
+| Contatos sincronizados: identificador público e rótulo local | Catálogo nativo versionado `contacts.json` em `app_data_dir`; impressão digital recalculada; preservado ao encerrar |
 | Histórico, backup, exportação e recuperação | Não existem |
 | Logs com conteúdo, IPs de peers, tokens, SDP ou chaves | Proibidos na configuração distribuída |
 | Binários, assets e configuração pública da distribuição | Podem existir em disco |
@@ -303,6 +304,8 @@ Não é possível impor apagamento a um operador malicioso. Ele pode copiar ciph
 | Estado transitório de sinalização/TURN | RAM limitada; sem histórico por usuário |
 
 Não usar localStorage, sessionStorage, IndexedDB, service worker, cache de conteúdo, plugins de persistência, arquivos temporários de mensagens nem stores globais contendo conversas.
+
+O catálogo de contatos pertence ao coordenador Rust e deve ser separado do estado de sessão. Grave alterações sem depender do fechamento do aplicativo e remova a entrada persistida na revogação, inclusive sem sessão ativa. O esquema deve rejeitar campos desconhecidos; não serializar `SessionStatus`, mensagens, bindings, códigos ou confiança anterior. Erros de leitura ou gravação devem ser visíveis, sem simular salvamento bem-sucedido ou substituir silenciosamente um arquivo inválido.
 
 Audite os diretórios e perfis criados pelo Tauri/WebView, WebView2/WebKit, bibliotecas e SO. Modo privado ou efêmero, quando disponível, não comprova ausência de qualquer arquivo. Nunca apresentar “gravar e apagar ao sair” como ausência de persistência. [R10]
 
@@ -314,7 +317,7 @@ JavaScript, DOM, IPC, WebView, GPU, teclado, acessibilidade, swap, hibernação,
 
 Crie interface minimalista em português do Brasil, com suporte claro/escuro, navegação por teclado e estados acessíveis. Sem painel de métricas decorativo, textos promocionais ou simulação de recursos não implementados.
 
-Telas essenciais: início de sessão; criação/entrada de convite; verificação de identidade; contatos temporários; compositor; pendências cifradas; visualizador de leitura única; diagnóstico de conexão e privacidade.
+Telas essenciais: início de sessão; criação/entrada de convite; verificação de identidade; contatos salvos acessíveis também sem sessão; compositor; pendências cifradas; visualizador de leitura única; diagnóstico de conexão e privacidade.
 
 Exibir rota “direta” ou “retransmitida” baseada em dados reais, fingerprint, tempo restante e distinção entre enviado, recebido e entrega não confirmada. Não manter bolhas de histórico após consumo. A interface não deve mostrar corpo antes de autorização.
 
@@ -376,7 +379,7 @@ Implemente em incrementos verificáveis: contrato e modelo de ameaças; prova de
 
 O primeiro fluxo vertical deve permitir que dois processos reais façam pareamento, verifiquem identidades, troquem uma mensagem cifrada e a consumam uma vez. Depois prove o mesmo fluxo passando por Coturn. Não desenvolver toda a interface antes de validar esses dois caminhos.
 
-Mantenha todos os recursos obrigatórios na matriz de entrega, mesmo quando ainda pendentes. Funcionalidades opcionais não devem bloquear uma base funcional nem esconder lacunas de autenticação, E2EE, expiração, relay ou ausência de persistência.
+Mantenha todos os recursos obrigatórios na matriz de entrega, mesmo quando ainda pendentes. Funcionalidades opcionais não devem bloquear uma base funcional nem esconder lacunas de autenticação, E2EE, expiração, relay ou ausência de persistência de mensagens.
 
 Entregue código compilável, lockfiles, testes, scripts de desenvolvimento, configuração de infraestrutura, instalador Windows, pacote Linux e CI por plataforma. Usuários finais não precisam instalar Node, Rust, Docker ou configurar rede manualmente. Dependências de runtime devem ser tratadas pelo empacotamento e documentadas, sem afirmar compatibilidade Linux universal.
 
@@ -396,7 +399,7 @@ A entrega só é funcional quando duas instâncias trocam mensagens reais em cam
 
 Ao encerrar o trabalho, informe o que foi implementado, como executar, testes e resultados observados, bloqueios reais, endpoints ainda necessários e riscos sem validação. Não chamar o software de auditado nem adequado a alta sensibilidade sem revisão independente.
 
-**Regra final: se uma garantia obrigatória não puder ser mantida, recuse a operação ou descarte a mensagem. Não persista, não rebaixe a criptografia e não simule sucesso.**
+**Regra final: se uma garantia obrigatória não puder ser mantida, recuse a operação ou descarte a mensagem. Não persista mensagens ou segredos, não rebaixe a criptografia e não simule sucesso. A persistência autorizada limita-se ao catálogo público de contatos.**
 
 ---
 

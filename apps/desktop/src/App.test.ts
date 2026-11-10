@@ -1,10 +1,10 @@
 import { createApp, nextTick, type App as VueApp } from 'vue'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { Invite, PendingMessage, SessionStatus } from './lib/ipc'
+import type { Invite, PeerSummary, PendingMessage, SessionStatus } from './lib/ipc'
 const native = vi.hoisted(() => ({
   isDesktop: () => true,
-  status: vi.fn(), startSession: vi.fn(), endSession: vi.fn(), listPending: vi.fn(), joinInvite: vi.fn(), createInvite: vi.fn(),
+  status: vi.fn(), startSession: vi.fn(), endSession: vi.fn(), listPending: vi.fn(), joinInvite: vi.fn(), createInvite: vi.fn(), revokePeer: vi.fn(),
 }))
 vi.mock('./lib/ipc', () => ({ api: native }))
 import App from './App.vue'
@@ -37,8 +37,109 @@ beforeEach(() => {
   native.startSession.mockReset()
   native.joinInvite.mockReset()
   native.createInvite.mockReset()
+  native.revokePeer.mockReset().mockResolvedValue(undefined)
 })
 afterEach(() => { app?.unmount(); container?.remove(); vi.useRealTimers(); vi.clearAllMocks() })
+
+const savedContact: PeerSummary = {
+  id: 'CONTATO-SALVO', label: 'Contato sincronizado', fingerprint: 'FINGERPRINT-SALVO',
+  verified: false, route: 'disconnected', verificationCode: null,
+}
+
+it('exibe contatos restaurados sem iniciar uma sessão e oferece novo pareamento', async () => {
+  native.status.mockResolvedValue({ ...inactive, peers: [savedContact] })
+  await mount()
+  button('Contatos').click()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos')
+  expect(container.textContent).toContain('Contato sincronizado')
+  expect(container.textContent).toContain('FINGERPRINT-SALVO')
+  expect(container.textContent).toContain('Contato salvo e desconectado')
+  expect(container.textContent).not.toContain('Identidade verificada')
+  expect(container.textContent).not.toContain('Verificar identidade')
+  expect(native.startSession).not.toHaveBeenCalled()
+  expect(native.listPending).not.toHaveBeenCalled()
+  button('Reconectar por convite').click()
+  await settle()
+  expect(container.querySelector('h1')?.textContent).toBe('Convites')
+  expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.disabled).toBe(false)
+})
+
+it('informa uma falha ao carregar os contatos mesmo sem sessão ativa', async () => {
+  native.status.mockResolvedValue({ ...inactive, contactsError: 'Não foi possível carregar os contatos salvos.' })
+  await mount()
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('Não foi possível carregar os contatos salvos.')
+  button('Contatos').click()
+  await settle()
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('Não foi possível carregar os contatos salvos.')
+})
+
+it('preserva os contatos devolvidos pelo núcleo ao encerrar a sessão e reabrir a interface', async () => {
+  native.status.mockResolvedValue({
+    ...inactive, phase: 'active', runtimeId: 'RUNTIME-SINTETICO', memoryProtection: 'protected',
+    peers: [{ ...savedContact, route: 'direct', verified: true, verificationCode: 'ABCD-EF01-2345-6789' }],
+  })
+  await mount()
+  native.status.mockResolvedValue({ ...inactive, peers: [savedContact] })
+  button('Sair e descartar sessão').click()
+  await settle()
+  button('Contatos').click()
+  await settle()
+  expect(native.endSession).toHaveBeenCalledTimes(1)
+  expect(container.textContent).toContain('Contato sincronizado')
+  expect(container.textContent).toContain('Contato salvo e desconectado')
+  expect(container.textContent).not.toContain('RUNTIME-SINTETICO')
+  app!.unmount()
+  container.remove()
+  await mount()
+  button('Contatos').click()
+  await settle()
+  expect(container.textContent).toContain('Contato sincronizado')
+  expect(container.textContent).not.toContain('Identidade verificada')
+})
+
+it('remove um contato salvo sem sessão somente após confirmação do núcleo', async () => {
+  native.status.mockResolvedValue({ ...inactive, peers: [savedContact] })
+  let finishRemoval!: () => void
+  native.revokePeer.mockReturnValue(new Promise<void>(resolve => { finishRemoval = resolve }))
+  await mount()
+  button('Contatos').click()
+  await settle()
+  button('Remover').click()
+  await settle()
+  const dialog = document.querySelector('[role="dialog"]')!
+  expect(dialog.textContent).toContain('Remover contato salvo?')
+  expect(dialog.textContent).toContain('removido permanentemente')
+  const confirm = [...dialog.querySelectorAll('button')].find(node => node.textContent?.includes('Remover e descartar'))!
+  confirm.click()
+  await settle()
+  expect(native.revokePeer).toHaveBeenCalledWith(savedContact.id)
+  expect(container.textContent).toContain('Contato sincronizado')
+  native.status.mockResolvedValue(inactive)
+  finishRemoval()
+  for (let i = 0; i < 5; i++) await settle()
+  expect(container.textContent).not.toContain('Contato sincronizado')
+  expect(container.textContent).toContain('Nenhum contato salvo')
+  expect(native.startSession).not.toHaveBeenCalled()
+})
+
+it('mantém a confirmação de remoção offline aberta durante o polling enquanto o contato existir', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] })
+  native.status.mockResolvedValue({ ...inactive, peers: [savedContact] })
+  await mount()
+  button('Contatos').click()
+  await settle()
+  button('Remover').click()
+  await settle()
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Remover contato salvo?')
+  await vi.advanceTimersByTimeAsync(2200)
+  expect(native.status.mock.calls.length).toBeGreaterThanOrEqual(3)
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Contato sincronizado')
+  expect(native.revokePeer).not.toHaveBeenCalled()
+  native.status.mockResolvedValue(inactive)
+  await vi.advanceTimersByTimeAsync(1200)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
 
 it('exibe somente a identidade fornecida pelo núcleo e a descarta ao encerrar', async () => {
   await mount()
@@ -139,9 +240,9 @@ it('mantém a resposta para devolver na aba de convites, sem simular conexão', 
   expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Resposta temporária para compartilhar"]')?.value).toBe('RESPOSTA-SINTETICA')
   expect(container.textContent).toContain('Devolva esta resposta')
   expect(container.textContent).not.toContain('Pareamento iniciado.')
-  button('Contatos da sessão').click()
+  button('Contatos').click()
   await settle()
-  expect(container.textContent).toContain('Nenhum contato nesta sessão')
+  expect(container.textContent).toContain('Nenhum contato salvo')
   button('Convites').click()
   await settle()
   expect(container.querySelector<HTMLTextAreaElement>('[aria-label="Resposta temporária para compartilhar"]')?.value).toBe('RESPOSTA-SINTETICA')
@@ -176,7 +277,7 @@ it('não renova a resposta ao trocar de aba e permite concluir colando uma respo
   await settle()
   button('Iniciar pareamento').click()
   await settle()
-  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos')
   expect(container.textContent).toContain('Aguarde a conexão e verifique a identidade')
 })
 
@@ -202,7 +303,7 @@ it('recebe convite sem sessão e aguarda o estado nativo antes de abrir contatos
   expect(container.querySelector('h1')?.textContent).toBe('Convites')
   finishStatus({ ...inactive, phase: 'active', runtimeId: 'RUNTIME-CONVITE', infrastructureConfigured: true, connectionSetup: { configured: true, source: 'invitation' }, memoryProtection: 'protected' })
   await settle()
-  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos')
   expect(container.textContent).toContain('Identidade ativa nesta execução')
 })
 
@@ -239,7 +340,7 @@ it('mantém o pareamento no aplicativo ao trocar de aba e libera as ações ao c
   expect(container.querySelector<HTMLTextAreaElement>('#join-invitation')?.value).toBe('')
   finishJoin()
   await settle()
-  expect(container.querySelector('h1')?.textContent).toBe('Contatos da sessão')
+  expect(container.querySelector('h1')?.textContent).toBe('Contatos')
   expect(button('Sair e descartar sessão').disabled).toBe(false)
 })
 

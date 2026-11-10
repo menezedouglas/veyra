@@ -40,8 +40,8 @@ o workflow corrigido.
 Para verificar o mesmo gate localmente:
 
 ```sh
-python3 scripts/release-gate.py --channel experimental --tag v0.1.0 --report release-evidence.json
-python3 scripts/release-gate.py --channel production --tag v0.1.0
+python3 scripts/release-gate.py --channel experimental --tag v0.1.1 --report release-evidence.json
+python3 scripts/release-gate.py --channel production --tag v0.1.1
 ```
 
 Sem `--channel`, o script mantém a política estrita de produção. `--report`

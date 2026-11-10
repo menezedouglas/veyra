@@ -29,6 +29,20 @@ políticas, deduplicação, saída cifrada e custódia em RAM. `veyra-transport`
 encapsula o backend WebRTC; `veyra-connectivity` valida configurações e rotas.
 `veyra-ipc` restringe operações locais e tamanhos. Não existe camada de banco.
 
+O coordenador mantém um catálogo de contatos separado da sessão volátil.
+`contacts.json`, no diretório nativo `app_data_dir` do Tauri, usa esquema versionado
+com somente identificador público e rótulo local. A impressão digital é derivada
+do identificador, não confiada ao arquivo. As alterações do catálogo são gravadas
+sem aguardar o encerramento; encerrar ou perder o cofre não apaga os contatos.
+Revogação remove a entrada persistida. A WebView não recebe acesso genérico ao
+filesystem e não usa storage do navegador para esse catálogo.
+
+Ao reabrir, o catálogo aparece desconectado e sem autorização de envio. Binding,
+código do transcript e aprovação continuam pertencendo à conexão atual em RAM.
+Novo pareamento e verificação são exigidos; não há reconexão automática ou
+associação de identidades diferentes pelo rótulo. Veja a [decisão de
+persistência de contatos](adr/0004-persistent-public-contacts.md).
+
 `veyra-session-runtime` roda no processo `veyra-daemon`, conecta WSS, faz ICE e
 Noise e recebe comandos de envio já selados. Seus buffers de mensagens guardam
 envelopes cifrados e metadados; o processo também mantém os segredos de transporte

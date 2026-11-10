@@ -1,10 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod contacts;
 mod operator_config;
 
+use contacts::ContactBook;
 use operator_config::OperatorConfiguration;
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow};
 use tokio::sync::Mutex;
 use veyra_daemon::{
     DaemonClient, PeerSummary, SessionStatus, VaultClient,
@@ -36,7 +38,75 @@ impl Default for Session {
         }
     }
 }
-struct AppState(Mutex<Session>);
+struct AppState(Mutex<Session>, Mutex<ContactState>);
+
+struct ContactState {
+    book: Option<ContactBook>,
+    error: Option<String>,
+}
+impl ContactState {
+    fn new(book: std::io::Result<ContactBook>) -> Self {
+        match book {
+            Ok(book) => Self {
+                book: Some(book),
+                error: None,
+            },
+            Err(_) => Self {
+                book: None,
+                error: Some("Não foi possível carregar os contatos salvos. O arquivo foi preservado; reinicie o aplicativo após corrigir o acesso aos dados locais.".into()),
+            },
+        }
+    }
+
+    fn sync(&mut self, peers: &[Peer]) {
+        if let Some(book) = &mut self.book {
+            self.error = book.sync(peers).err().map(|_| {
+                "Não foi possível salvar os contatos. Eles podem ser perdidos ao fechar o aplicativo; confira o acesso aos dados locais e tente novamente.".into()
+            });
+        }
+    }
+
+    fn remove(&mut self, id: &str) -> Result<(), String> {
+        let Some(book) = &mut self.book else {
+            return Err(self
+                .error
+                .clone()
+                .unwrap_or_else(|| "Contatos indisponíveis.".into()));
+        };
+        match book.remove(id) {
+            Ok(()) => {
+                self.error = None;
+                Ok(())
+            }
+            Err(_) => {
+                let reason = "Não foi possível remover o contato salvo. Confira o acesso aos dados locais e tente novamente.".to_string();
+                self.error = Some(reason.clone());
+                Err(reason)
+            }
+        }
+    }
+
+    fn status(&self, session: &SessionStatus) -> SessionStatus {
+        let mut status = session.clone();
+        status.contacts_error = self.error.clone();
+        let mut saved = self
+            .book
+            .as_ref()
+            .map(ContactBook::summaries)
+            .unwrap_or_default();
+        for peer in &status.peers {
+            if let Some(contact) = saved.iter_mut().find(|contact| contact.id == peer.id) {
+                let label = contact.label.clone();
+                *contact = peer.clone();
+                contact.label = label;
+            } else {
+                saved.push(peer.clone());
+            }
+        }
+        status.peers = saved;
+        status
+    }
+}
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Invite {
@@ -170,6 +240,7 @@ async fn connection_status(
 ) -> Result<SessionStatus, String> {
     local(&window)?;
     let mut s = state.0.lock().await;
+    let mut synchronized = Vec::new();
     s.status.deliveries.clear();
     if let Some(v) = s.vault.clone() {
         if v.lock().await.request(&Req::Status {}).await.is_err() {
@@ -194,6 +265,7 @@ async fn connection_status(
                 })
             });
             s.status.peers = p.iter().map(|p| summary(p, &s.approved)).collect();
+            synchronized = p;
         }
         if let Ok(Reply::Events {
             deliveries,
@@ -241,7 +313,9 @@ async fn connection_status(
         s.outgoing.remove(&message_id);
         s.status.deliveries.push(veyra_daemon::DeliveryStatus{message_id,peer_id,state:"delivery-unconfirmed",reason:Some("Não houve confirmação autenticada antes da expiração ou desconexão. A entrega pode ter ocorrido.".into())});
     }
-    Ok(s.status.clone())
+    let mut contacts = state.1.lock().await;
+    contacts.sync(&synchronized);
+    Ok(contacts.status(&s.status))
 }
 #[tauri::command]
 async fn start_session(
@@ -256,14 +330,14 @@ async fn start_session(
     }
     let mut s = state.0.lock().await;
     if s.vault.is_some() {
-        return Ok(s.status.clone());
+        return Ok(state.1.lock().await.status(&s.status));
     }
     begin_session(
         &mut s,
         operator_config::resolve(signaling_endpoint.as_deref()),
     )
     .await?;
-    Ok(s.status.clone())
+    Ok(state.1.lock().await.status(&s.status))
 }
 
 const NETWORK_SESSION_ENDED: &str = "O componente de conexão desta identidade foi encerrado. Encerre a sessão antes de iniciar outra conexão.";
@@ -522,6 +596,7 @@ async fn verify_peer(
         .into_iter()
         .find(|p| p.id == peer_id)
         .ok_or("Contato indisponível.")?;
+    state.1.lock().await.sync(std::slice::from_ref(&p));
     Ok(summary(&p, &s.approved))
 }
 #[tauri::command]
@@ -684,26 +759,46 @@ async fn revoke_peer(
     let mut s = state.0.lock().await;
     s.approved.remove(&peer_id);
     s.outgoing.retain(|_, (id, _)| id != &peer_id);
-    let v = s.vault.clone().ok_or("Sessão indisponível.")?;
-    if !matches!(
-        v.lock()
-            .await
-            .request(&Req::Revoke { peer })
-            .await
-            .map_err(|_| "Cofre indisponível.")?,
-        Resp::Ok
-    ) {
+    if let Some(v) = s.vault.clone()
+        && !matches!(
+            v.lock()
+                .await
+                .request(&Req::Revoke { peer })
+                .await
+                .map_err(|_| "Cofre indisponível.")?,
+            Resp::Ok
+        )
+    {
         return Err("Revogação recusada.".into());
     }
     if s.daemon.is_some() {
-        request(&mut s, Command::RevokePeer { peer_id }).await?;
+        request(
+            &mut s,
+            Command::RevokePeer {
+                peer_id: peer_id.clone(),
+            },
+        )
+        .await?;
     }
+    state.1.lock().await.remove(&peer_id)?;
+    s.status.peers.retain(|p| p.id != peer_id);
     Ok(())
 }
 fn main() {
     std::panic::set_hook(Box::new(|_| {}));
     let app = tauri::Builder::default()
-        .manage(AppState(Mutex::new(Session::default())))
+        .setup(|app| {
+            let book = app
+                .path()
+                .app_data_dir()
+                .map_err(std::io::Error::other)
+                .and_then(|directory| ContactBook::open(directory.join("contacts.json")));
+            app.manage(AppState(
+                Mutex::new(Session::default()),
+                Mutex::new(ContactState::new(book)),
+            ));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             connection_status,
             start_session,
@@ -726,7 +821,87 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, network_start_allowed, summary, trusted_origin};
+    use super::{
+        ContactBook, ContactState, Session, network_start_allowed, summary, trusted_origin,
+    };
+
+    #[test]
+    fn ending_and_reopening_a_session_keeps_contacts_but_discards_message_state_and_trust() {
+        let nonce = veyra_identity::random_id().unwrap();
+        let directory = std::env::temp_dir().join(format!("veyra-contact-session-{:x?}", nonce));
+        let path = directory.join("contacts.json");
+        let peer = veyra_daemon::wire::Peer {
+            id: "01".repeat(32),
+            binding_frame: vec![1, 2, 3],
+            fingerprint: veyra_identity::fingerprint(&[1; 32]),
+            verification_code: "ABCD-EF01-2345-6789".into(),
+            verified: true,
+            online: true,
+            route: veyra_connectivity::Route::Direct,
+            available_offers: 1,
+        };
+        let mut contacts = ContactState::new(ContactBook::open(path.clone()));
+        contacts.sync(std::slice::from_ref(&peer));
+        assert!(contacts.error.is_none());
+        let mut session = Session::default();
+        session.approved.insert(
+            peer.id.clone(),
+            (peer.binding_frame.clone(), peer.verification_code.clone()),
+        );
+        session.status.runtime_id = Some("synthetic-runtime".into());
+        session.status.pending_count = 1;
+        session
+            .status
+            .deliveries
+            .push(veyra_daemon::DeliveryStatus {
+                message_id: "synthetic-message".into(),
+                peer_id: peer.id.clone(),
+                state: "sent",
+                reason: None,
+            });
+        session.status.peers.push(summary(&peer, &session.approved));
+        assert!(contacts.status(&session.status).peers[0].verified);
+
+        session = Session::default();
+        let ended = contacts.status(&session.status);
+        assert_eq!(ended.peers.len(), 1);
+        assert_eq!(ended.peers[0].id, peer.id);
+        assert_eq!(ended.peers[0].route, "disconnected");
+        assert!(!ended.peers[0].verified);
+        assert!(ended.peers[0].verification_code.is_none());
+        assert!(ended.runtime_id.is_none());
+        assert_eq!(ended.pending_count, 0);
+        assert!(ended.deliveries.is_empty());
+
+        drop(contacts);
+        let mut reopened = ContactState::new(ContactBook::open(path.clone()));
+        assert_eq!(
+            reopened.status(&Session::default().status).peers[0].id,
+            peer.id
+        );
+        reopened.remove(&peer.id).unwrap();
+        drop(reopened);
+        let removed = ContactState::new(ContactBook::open(path));
+        assert!(removed.status(&Session::default().status).peers.is_empty());
+        drop(removed);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_contact_load_error_is_visible_without_a_session_and_never_replaces_the_file() {
+        let mut contacts = ContactState::new(Err(std::io::Error::other("synthetic-load-error")));
+        contacts.sync(&[]);
+        let status = contacts.status(&Session::default().status);
+        assert!(
+            status
+                .contacts_error
+                .as_deref()
+                .unwrap()
+                .contains("carregar os contatos")
+        );
+        assert!(status.peers.is_empty());
+        assert!(contacts.remove(&"01".repeat(32)).is_err());
+    }
 
     #[test]
     fn approval_is_bound_to_the_current_online_pairing_transcript() {

@@ -1,6 +1,6 @@
 # Matriz de entrega — Veyra
 
-Atualização: 2026-11-09. **Não pronto para lançamento.** Código presente não é
+Atualização: 2026-11-10. **Não pronto para lançamento.** Código presente não é
 sinônimo de evidência de instalação, interoperabilidade ou ausência de vestígios.
 Os resultados observados e comandos estão em `docs/testing.md`.
 
@@ -28,7 +28,8 @@ Os resultados observados e comandos estão em `docs/testing.md`.
 | Interface PT-BR | Cinco abas, tema, convites, verificação, compositor, pendências e viewer; 16+19 checks nativos instalados | Windows, contraste em todos os estados e acessibilidade manual |
 | Viewer isolado | Resposta local, confirmação, prazo sem renovação; ocultação por perda de foco e ausência de histórico comprovadas na UI Linux | Windows, GPU e auditoria abrangente de resíduos |
 | WebView restrita | CSP, comandos próprios mínimos, origem/janela, incognito, sem plugins amplos | Auditoria dinâmica de perfis; incompatibilidade WebDriver/incognito registrada |
-| Estado sem persistência intencional | RAM apenas, sem storage/browser DB/filas duráveis, locks verificados | SO, WebView, swap, hibernação e snapshot continuam fora da garantia |
+| Mensagens e sessões sem persistência intencional | Mensagens, chaves privadas, convites e autorizações somente em RAM; sem storage/browser DB/filas duráveis, locks verificados | SO, WebView, swap, hibernação e snapshot continuam fora da garantia |
+| Contatos sincronizados persistentes | Catálogo nativo versionado em `contacts.json`, somente ID público e rótulo; fingerprint recalculado; reabertura preserva a lista offline e revogação remove a entrada | Identidade continua temporária: novo convite e verificação por sessão; sem reconexão automática ou associação por nome; QA gráfico Windows/Linux pendente |
 | Endpoints e certificados reais | Modo direto padrão dispensa operador/certificado; WSS opcional por distribuição/ambiente ou convite validado; operador local dev opt-in com TLS temporário | Nenhum serviço público opcional configurado ou implantado |
 | Credenciais TURN temporárias | Emissão REST no WSS autenticado e relay automático real sem ICE configurado nos clientes | Renovação periódica, política pública de antiabuso e múltiplos operadores |
 | Infra sem mailbox | Coturn/Compose com quotas, sem DB de mensagem e logs restritos | Verificação operacional do host/proxy/journal de produção |

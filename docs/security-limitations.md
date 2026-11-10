@@ -9,6 +9,10 @@ funcionalidades e garantias ainda não implementadas ou não comprovadas.
   autenticação/replay; chaves descartáveis reduzem a retenção.
 * Noise XX depende de verificar o binding e comparar identidade/transcript.
   Nenhum nome exibido, relay ou documento autossinado substitui isso.
+* O catálogo público de contatos permanece em `contacts.json` no diretório de
+  dados do aplicativo e pode revelar identificadores e rótulos a quem leia esse
+  arquivo. A lista recuperada fica desconectada e sem confiança de sessão;
+  reiniciar exige novo pareamento e verificação. Mensagens não são recuperadas.
 * Zeroize atua nos buffers que controla; não limpa automaticamente cópias
   temporárias das bibliotecas, JavaScript, DOM, IPC, WebView ou GPU.
 * mlock/VirtualLock podem falhar. Falha de proteção dos buffers bloqueia a

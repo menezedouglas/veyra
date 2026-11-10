@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version tag matching the application manifests (e.g. v0.1.0)
+        description: Version tag matching the application manifests (e.g. v0.1.1)
         required: true
         type: string
       channel:

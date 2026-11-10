@@ -5,7 +5,7 @@ services:
     build:
       context: ../..
       dockerfile: services/signaling/Dockerfile
-    image: veyra-signaling:0.1.0
+    image: veyra-signaling:0.1.1
     command:
       - 0.0.0.0:8443
       - /run/veyra-tls/fullchain.pem

@@ -1,7 +1,8 @@
 # Modelo de ameaças
 
-Prioridade: autenticidade e confidencialidade, ausência de persistência,
-disponibilidade, conveniência. Implementação experimental; sem auditoria.
+Prioridade: autenticidade e confidencialidade, ausência de persistência de
+mensagens e segredos, disponibilidade, conveniência. O catálogo público de
+contatos é persistido localmente. Implementação experimental; sem auditoria.
 
 | Adversário / falha | Controle implementado ou projetado | Limite / validação pendente |
 |---|---|---|
@@ -9,6 +10,7 @@ disponibilidade, conveniência. Implementação experimental; sem auditoria.
 | Sinalização maliciosa | Mensagens assinadas com vínculo de convite/papel/execução | Pode omitir, atrasar, correlacionar e interromper; infraestrutura não esconde IP |
 | Relay malicioso | Apenas tráfego DTLS/Noise e envelope HPKE | Pode copiar ciphertext/metadados e negar serviço |
 | Substituição de chave | BindTransport único antes da autorização, binding assinado e chave Noise remota observada; runtime novo exige confiança nova | Autossinatura não demonstra identidade humana; revogação não permite trocar o par Noise na mesma execução |
+| Acesso ou adulteração do catálogo de contatos | Arquivo nativo fechado guarda somente ID público e rótulo; fingerprint recalculado; contatos recuperados ficam offline sem confiança restaurada | Quem lê o arquivo pode conhecer contatos e rótulos; a lista não autentica a pessoa nem associa automaticamente chaves novas por nome |
 | Replay / ACK falso | Assinatura, digest, IDs, execução e dedup limitado | Cache não é persistente; restart invalida identidade e ofertas |
 | Duas aberturas concorrentes | Cofre serializado e remoção de chave antes de retorno | Falha após claim causa perda intencional |
 | Exaustão de memória | Tamanhos/coleções/filas/salas limitados; backpressure | Testes de carga hostil e reservas nativas WebRTC ainda necessários |

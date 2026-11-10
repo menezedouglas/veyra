@@ -21,6 +21,7 @@ export interface SessionStatus {
   }
   reason?: string | null
   peers: PeerSummary[]
+  contactsError?: string | null
   pendingCount: number
   memoryProtection: 'not-checked' | 'protected' | 'unavailable'
   deliveries?: Delivery[]

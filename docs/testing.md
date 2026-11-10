@@ -64,8 +64,11 @@ Docker e ferramentas de desenvolvimento não são requisitos do usuário distrib
 * `cargo fmt --all -- --check` e Clippy com `-D warnings` passaram no workspace
   padrão e no desktop com `native-libnice`. A compilação cruzada Windows GNU
   histórica foi complementada pela execução MSVC descrita abaixo.
-* Guards de código/configuração verificam ausência de APIs de persistência/log
-  no caminho controlado, CSP e capabilities. Não são auditoria do SO/WebView.
+* Guards de código/configuração verificam APIs de persistência/log no frontend,
+  nos crates e no coordenador Tauri, CSP e capabilities. A única exceção para
+  escrita de dados do aplicativo é o módulo nativo `contacts.rs`, que guarda o
+  catálogo público de contatos. Logging e storage do navegador continuam
+  proibidos nesse módulo. Esses guards não são auditoria do SO/WebView.
 
 ## Windows: núcleo com named pipes
 

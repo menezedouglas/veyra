@@ -151,7 +151,7 @@ verificação completa de avisos/licenças das dependências continua sendo part
 da liberação, não uma conclusão jurídica dessa imagem de laboratório.
 
 ```sh
-docker build -f services/signaling/Dockerfile -t veyra-signaling:0.1.0 .
+docker build -f services/signaling/Dockerfile -t veyra-signaling:0.1.1 .
 docker compose -f infrastructure/development/compose.signaling.yaml --profile operator up -d --no-build
 ```
 
